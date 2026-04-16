@@ -1,17 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
 
 function fmt(v) {
   const n = Math.round(v);
   return (n < 0 ? "-" : "") + "R$" + Math.abs(n).toLocaleString("pt-BR");
 }
 
-export default function Assistente({ data26, data27, ano, fl }) {
+export default function Assistente({ data26, data27, ano, fl, supabase }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");

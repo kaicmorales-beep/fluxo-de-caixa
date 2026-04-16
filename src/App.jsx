@@ -819,7 +819,7 @@ export default function App() {
       {toast && <div className="toast show">{toast}</div>}
 
       {/* ASSISTENTE FINANCEIRO */}
-      <Assistente data26={data26} data27={data27} ano={ano} fl={fl} />
+      <Assistente data26={data26} data27={data27} ano={ano} fl={fl} supabase={supabase} />
     </>
   );
 }
