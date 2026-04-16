@@ -787,6 +787,14 @@ export default function App() {
             <button className={`yr-btn${ano===2026?" on":""}`} onClick={()=>setAno(2026)}>2026</button>
             <button className={`yr-btn${ano===2027?" on":""}`} onClick={()=>setAno(2027)}>2027</button>
           </div>
+          <button
+            className="btn btn-p btn-sm"
+            disabled={saving==="saving"}
+            onClick={()=>saveData(D,ano)}
+            style={{minWidth:80}}
+          >
+            {saving==="saving"?"Salvando...":saving==="saved"?"✓ Salvo":saving==="error"?"✗ Erro":"Salvar"}
+          </button>
           <div className="user-chip">
             {user.user_metadata?.avatar_url
               ? <img className="avatar" src={user.user_metadata.avatar_url} alt=""/>
