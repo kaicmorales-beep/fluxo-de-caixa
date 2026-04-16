@@ -126,12 +126,13 @@ ${resumoOutroAno}`;
 
       setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
     } catch (err) {
+      const msg = err?.message || JSON.stringify(err) || "erro desconhecido";
+      console.error("[assistente] erro:", err);
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content:
-            "Erro ao conectar com o assistente. Verifique se a Edge Function está publicada e a chave ANTHROPIC_API_KEY está configurada.",
+          content: `Erro: ${msg}`,
         },
       ]);
     } finally {
