@@ -3,6 +3,7 @@
 // Cole este arquivo inteiro no editor do Lovable
 // ============================================================
 import { useState, useEffect, useCallback } from "react";
+import Assistente from "./components/Assistente.jsx";
 import { createClient } from "@supabase/supabase-js";
 
 // ── SUPABASE CONFIG ──────────────────────────────────────────
@@ -816,6 +817,9 @@ export default function App() {
 
       {/* TOAST */}
       {toast && <div className="toast show">{toast}</div>}
+
+      {/* ASSISTENTE FINANCEIRO */}
+      <Assistente data26={data26} data27={data27} ano={ano} fl={fl} />
     </>
   );
 }
