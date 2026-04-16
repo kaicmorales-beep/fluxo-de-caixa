@@ -60,8 +60,7 @@ function gastosEmpMes(d, ano) {
         if (i < ini || (par !== 0 && (i - ini) >= par)) return a;
         return a + val;
       }, 0), 0);
-    const temContas = d.categorias.some(cat => cat.contas.length > 0);
-    return temContas ? soma : (d.gastosEmpresa[i] || 0);
+    return soma;
   });
 }
 
@@ -118,10 +117,14 @@ async function loadFromDB(userId, ano) {
 }
 
 async function saveToDB(userId, ano, dados) {
-  await supabase.from("fluxo_dados").upsert(
+  const { error } = await supabase.from("fluxo_dados").upsert(
     { user_id: userId, ano, dados, updated_at: new Date().toISOString() },
     { onConflict: "user_id,ano" }
   );
+  if (error) {
+    console.error("[fluxo-caixa] Erro ao salvar:", error);
+    throw error;
+  }
 }
 
 // ── STYLES ───────────────────────────────────────────────────
@@ -163,7 +166,7 @@ const S = `
   .tab.on{color:var(--green);border-bottom-color:var(--green);font-weight:600}
 
   /* CONTENT */
-  .content{padding:20px;max-width:1200px}
+  .content{padding:20px;width:100%;box-sizing:border-box}
 
   /* CARDS */
   .card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:16px}
@@ -265,6 +268,8 @@ const S = `
   .saving-dot{width:7px;height:7px;border-radius:50%;background:var(--muted2);display:inline-block;margin-left:6px;transition:background .3s}
   .saving-dot.saving{background:#f0c97a}
   .saving-dot.saved{background:#1a6e1a}
+  .saving-dot.error{background:var(--red)}
+  .save-err{font-size:11px;color:var(--red);margin-left:6px;font-weight:500}
 
   /* LOGIN */
   .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg)}
@@ -281,9 +286,21 @@ const S = `
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(10px);background:#1a1a18;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:500;z-index:300;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
-  @media(max-width:600px){
+  @media(max-width:900px){
     .hdr-stats{display:none}
-    .content{padding:14px}
+    .content{padding:12px}
+    .topbar{padding:0 12px;gap:8px}
+    thead th{padding:7px 6px;font-size:9px}
+    .td-m{padding:8px 8px;font-size:12px}
+    .td-n{padding:8px 6px;font-size:11px}
+    .td-s{padding:8px 6px;font-size:12px}
+    .ed-inp{padding:8px 6px;min-width:60px;font-size:11px}
+  }
+  @media(max-width:600px){
+    .content{padding:8px}
+    .topbar{height:44px}
+    .tabs{padding:0 8px}
+    .tab{padding:10px 10px;font-size:12px}
   }
 `;
 
@@ -356,9 +373,15 @@ export default function App() {
   const saveData = useCallback(async (newD, targetAno) => {
     if (!session) return;
     setSaving("saving");
-    await saveToDB(session.user.id, targetAno, newD);
-    setSaving("saved");
-    setTimeout(() => setSaving("idle"), 2000);
+    try {
+      await saveToDB(session.user.id, targetAno, newD);
+      setSaving("saved");
+      setTimeout(() => setSaving("idle"), 2000);
+    } catch (err) {
+      setSaving("error");
+      console.error("[fluxo-caixa] saveData falhou:", err?.message || err);
+      setTimeout(() => setSaving("idle"), 4000);
+    }
   }, [session]);
 
   function update(updater) {
@@ -423,14 +446,20 @@ export default function App() {
             {fl.map((r,i)=>(
               <tr key={i} style={i===0?{background:"#fafaf5"}:{}}>
                 <td className="td-m">{r.mes}</td>
-                <td className="td-n neg">{r.gp>0?fmt(r.gp):"—"}</td>
+                <td><input className="ed-inp" type="number" value={r.gp||""} style={{color:"var(--red)"}}
+                  onChange={e=>update(d=>{d.gastosPessoal[i]=parseFloat(e.target.value)||0;return d;})}/></td>
                 <td className="td-n neg">{r.ge>0?fmt(r.ge):"—"}</td>
-                <td className="td-n pos">{r.ba>0?fmt(r.ba):"—"}</td>
+                <td><input className="ed-inp" type="number" value={r.ba||""} style={{color:"#1a6e1a"}}
+                  onChange={e=>update(d=>{d.banda[i]=parseFloat(e.target.value)||0;return d;})}/></td>
                 <td className={`td-n ${r.cl>0?"pos":"dim"}`}>{r.cl>0?fmt(r.cl):"—"}</td>
                 <td className="td-n neg" style={{fontWeight:600}}>{r.gastos>0?fmt(r.gastos):"—"}</td>
                 <td className="td-n pos" style={{fontWeight:600}}>{r.entradas>0?fmt(r.entradas):"—"}</td>
                 <td className={`td-s ${cc(r.saldo)}`}>{fmt(r.saldo)}</td>
-                <td className={`td-s ${cc(r.caixa)}`} style={{fontSize:14}}>{fmt(r.caixa)}</td>
+                {ano===2026&&i===0
+                  ? <td><input className="ed-inp" type="number" value={D.caixaInicial||""} style={{fontSize:14,fontWeight:600,color:r.caixa>=0?"#1a6e1a":"var(--red)"}}
+                      onChange={e=>update(d=>{d.caixaInicial=parseFloat(e.target.value)||0;return d;})}/></td>
+                  : <td className={`td-s ${cc(r.caixa)}`} style={{fontSize:14}}>{fmt(r.caixa)}</td>
+                }
               </tr>
             ))}
             <tr style={{background:"var(--surface)",borderTop:"2px solid var(--border2)"}}>
@@ -740,7 +769,8 @@ export default function App() {
       <div className="topbar">
         <div className="brand">
           Fluxo de Caixa
-          <span className={`saving-dot ${saving==="saving"?"saving":saving==="saved"?"saved":""}`} title={saving==="saving"?"Salvando...":saving==="saved"?"Salvo!":""}/>
+          <span className={`saving-dot ${saving==="saving"?"saving":saving==="saved"?"saved":saving==="error"?"error":""}`} title={saving==="saving"?"Salvando...":saving==="saved"?"Salvo!":saving==="error"?"Erro ao salvar — veja o console":""}/>
+          {saving==="error"&&<span className="save-err">Erro ao salvar</span>}
         </div>
         <div className="hdr-right">
           <div className="hdr-stats">
