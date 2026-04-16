@@ -23,30 +23,34 @@ Não repita os dados brutos de volta ao usuário, interprete-os.
 DADOS FINANCEIROS ATUAIS DO USUÁRIO:
 ${context}`;
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        "x-api-key": Deno.env.get("ANTHROPIC_API_KEY") ?? "",
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
+        "Authorization": `Bearer ${Deno.env.get("OPENAI_API_KEY") ?? ""}`,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: "gpt-4o",
         max_tokens: 1024,
-        system: systemPrompt,
-        messages,
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...messages,
+        ],
       }),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data?.error?.message || "Erro na API da Anthropic");
+      throw new Error(data?.error?.message || "Erro na API da OpenAI");
     }
 
-    return new Response(JSON.stringify(data), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    // Retorna no mesmo formato que o frontend espera
+    const reply = data?.choices?.[0]?.message?.content ?? "Sem resposta.";
+    return new Response(
+      JSON.stringify({ content: [{ text: reply }] }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
