@@ -803,58 +803,48 @@ export default function App() {
           })}
         </div>
 
-        {/* DASH ANUAL */}
+        {/* DASH ANUAL — mini cards por mês */}
         <div style={{marginTop:24}}>
           <div className="sec-label" style={{marginTop:0}}>Panorama anual</div>
-          <div className="dash-tbl-wrap">
-            <table className="dash-tbl">
-              <thead>
-                <tr>
-                  <th>Grupo</th>
-                  {ms.map(m=><th key={m}>{m.substring(0,3)}</th>)}
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {GRUPOS.map(g=>{
-                  const items=D.clientes.filter(c=>(c.tipoReceita||"cliente")===g.key&&c.status==="ativo");
-                  const porMes=ms.map((_,mi)=>items.reduce((a,c)=>{
-                    const ini=parseInt(c.inicio),par=parseInt(c.parcelas),val=parseFloat(c.valor)||0;
-                    return mi>=ini&&(par===0||(mi-ini)<par)?a+val:a;
-                  },0));
-                  const total=porMes.reduce((a,v)=>a+v,0);
-                  if(total===0) return null;
-                  return (
-                    <tr key={g.key}>
-                      <td style={{color:g.cor,fontWeight:600}}>
-                        <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:g.cor,marginRight:6}}/>
-                        {g.label}
-                      </td>
-                      {porMes.map((v,mi)=>(
-                        <td key={mi} style={{color:v>0?"#1a6e1a":"var(--muted2)",fontWeight:v>0?600:400,background:mi===atvMes?"#f0f8f0":undefined}}>
-                          {v>0?fmt(v):"—"}
-                        </td>
-                      ))}
-                      <td style={{fontWeight:700,color:g.cor}}>{fmt(total)}</td>
-                    </tr>
-                  );
-                })}
-                <tr className="spec-row">
-                  <td>Total</td>
-                  {ms.map((_,mi)=>{
-                    const v=D.clientes.filter(c=>c.status==="ativo").reduce((a,c)=>{
-                      const ini=parseInt(c.inicio),par=parseInt(c.parcelas),val=parseFloat(c.valor)||0;
-                      return mi>=ini&&(par===0||(mi-ini)<par)?a+val:a;
-                    },0);
-                    return <td key={mi} style={{background:mi===atvMes?"#e8f4e8":undefined,color:v>0?"#1a6e1a":"var(--muted2)"}}>{v>0?fmt(v):"—"}</td>;
-                  })}
-                  <td style={{fontWeight:700,color:"#1a6e1a"}}>{fmt(D.clientes.filter(c=>c.status==="ativo").reduce((a,c)=>{
-                    const ini=parseInt(c.inicio),par=parseInt(c.parcelas),val=parseFloat(c.valor)||0;
-                    return a+ms.reduce((acc,_,mi)=>mi>=ini&&(par===0||(mi-ini)<par)?acc+val:acc,0);
-                  },0))}</td>
-                </tr>
-              </tbody>
-            </table>
+          <div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:8}}>
+            {ms.map((m,mi)=>{
+              const ativosNoMes=D.clientes.filter(c=>{
+                if(c.status!=="ativo") return false;
+                const ini=parseInt(c.inicio),par=parseInt(c.parcelas);
+                return mi>=ini&&(par===0||(mi-ini)<par);
+              });
+              const totalMes=ativosNoMes.reduce((a,c)=>a+(parseFloat(c.valor)||0),0);
+              const selecionado=mi===atvMes;
+              return (
+                <div key={mi} onClick={()=>setAtvMes(mi)} style={{
+                  minWidth:150,flexShrink:0,background:selecionado?"#eaf4ea":"#fff",
+                  border:`1.5px solid ${selecionado?"#2d6a2d":"#e2e1db"}`,
+                  borderRadius:"var(--r)",padding:"12px 14px",cursor:"pointer",
+                  transition:"box-shadow .15s",
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,.08)"}
+                  onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}
+                >
+                  <div style={{fontWeight:600,fontSize:12,color:selecionado?"#2d6a2d":"var(--muted)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:6}}>{m}</div>
+                  <div style={{fontFamily:"var(--mono)",fontSize:16,fontWeight:700,color:totalMes>0?"#1a6e1a":"var(--muted2)",marginBottom:8}}>
+                    {totalMes>0?fmt(totalMes):"—"}
+                  </div>
+                  {ativosNoMes.length===0
+                    ? <div style={{fontSize:11,color:"var(--muted2)",fontStyle:"italic"}}>Nenhum</div>
+                    : ativosNoMes.map((c,ci)=>{
+                        const g=GRUPOS.find(g=>g.key===(c.tipoReceita||"cliente"));
+                        return (
+                          <div key={ci} style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
+                            <div style={{width:6,height:6,borderRadius:"50%",background:g?.cor||"#888",flexShrink:0}}/>
+                            <span style={{fontSize:11,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.nome}</span>
+                            <span style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--mono)",marginLeft:"auto",flexShrink:0}}>{fmt(parseFloat(c.valor)||0)}</span>
+                          </div>
+                        );
+                      })
+                  }
+                </div>
+              );
+            })}
           </div>
         </div>
       </>
