@@ -802,6 +802,61 @@ export default function App() {
             );
           })}
         </div>
+
+        {/* DASH ANUAL */}
+        <div style={{marginTop:24}}>
+          <div className="sec-label" style={{marginTop:0}}>Panorama anual</div>
+          <div className="dash-tbl-wrap">
+            <table className="dash-tbl">
+              <thead>
+                <tr>
+                  <th>Grupo</th>
+                  {ms.map(m=><th key={m}>{m.substring(0,3)}</th>)}
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {GRUPOS.map(g=>{
+                  const items=D.clientes.filter(c=>(c.tipoReceita||"cliente")===g.key&&c.status==="ativo");
+                  const porMes=ms.map((_,mi)=>items.reduce((a,c)=>{
+                    const ini=parseInt(c.inicio),par=parseInt(c.parcelas),val=parseFloat(c.valor)||0;
+                    return mi>=ini&&(par===0||(mi-ini)<par)?a+val:a;
+                  },0));
+                  const total=porMes.reduce((a,v)=>a+v,0);
+                  if(total===0) return null;
+                  return (
+                    <tr key={g.key}>
+                      <td style={{color:g.cor,fontWeight:600}}>
+                        <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:g.cor,marginRight:6}}/>
+                        {g.label}
+                      </td>
+                      {porMes.map((v,mi)=>(
+                        <td key={mi} style={{color:v>0?"#1a6e1a":"var(--muted2)",fontWeight:v>0?600:400,background:mi===atvMes?"#f0f8f0":undefined}}>
+                          {v>0?fmt(v):"—"}
+                        </td>
+                      ))}
+                      <td style={{fontWeight:700,color:g.cor}}>{fmt(total)}</td>
+                    </tr>
+                  );
+                })}
+                <tr className="spec-row">
+                  <td>Total</td>
+                  {ms.map((_,mi)=>{
+                    const v=D.clientes.filter(c=>c.status==="ativo").reduce((a,c)=>{
+                      const ini=parseInt(c.inicio),par=parseInt(c.parcelas),val=parseFloat(c.valor)||0;
+                      return mi>=ini&&(par===0||(mi-ini)<par)?a+val:a;
+                    },0);
+                    return <td key={mi} style={{background:mi===atvMes?"#e8f4e8":undefined,color:v>0?"#1a6e1a":"var(--muted2)"}}>{v>0?fmt(v):"—"}</td>;
+                  })}
+                  <td style={{fontWeight:700,color:"#1a6e1a"}}>{fmt(D.clientes.filter(c=>c.status==="ativo").reduce((a,c)=>{
+                    const ini=parseInt(c.inicio),par=parseInt(c.parcelas),val=parseFloat(c.valor)||0;
+                    return a+ms.reduce((acc,_,mi)=>mi>=ini&&(par===0||(mi-ini)<par)?acc+val:acc,0);
+                  },0))}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </>
     );
   }
