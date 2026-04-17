@@ -530,8 +530,14 @@ export default function App() {
               <div style={{width:10,height:10,borderRadius:"50%",background:cat.cor}}/>
               <span style={{fontWeight:600,fontSize:17,color:cat.cor}}>{cat.nome}</span>
             </div>
-            <span style={{fontSize:12,color:"var(--muted)"}}>{cat.contas.length} conta{cat.contas.length!==1?"s":""}</span>
-            <button className="btn btn-p btn-sm" style={{marginLeft:"auto"}} onClick={()=>setActiveTab("add-conta")}>+ Adicionar conta</button>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto"}}>
+              <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={empMes===0} onClick={()=>setEmpMes(m=>m-1)}>‹</button>
+              <select className="fi" style={{width:"auto",padding:"5px 10px",fontSize:13}} value={empMes} onChange={e=>setEmpMes(parseInt(e.target.value))}>
+                {ms.map((m,i)=><option key={i} value={i}>{m}</option>)}
+              </select>
+              <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={empMes===ms.length-1} onClick={()=>setEmpMes(m=>m+1)}>›</button>
+            </div>
+            <button className="btn btn-p btn-sm" onClick={()=>setActiveTab("add-conta")}>+ Adicionar conta</button>
           </div>
 
           {cat.contas.length===0 && (
