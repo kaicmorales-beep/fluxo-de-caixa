@@ -52,15 +52,36 @@ function fmt(v) {
 }
 function cc(v) { return v > 50 ? "pos" : v < 0 ? "neg" : "neu"; }
 
-function gastosEmpMes(d, ano) {
+const N_2026 = ANOS_CONFIG[2026].length; // 9 meses (Abril-Dezembro)
+
+function gastosEmpMes(d, ano, prevD = null) {
   const ms = ANOS_CONFIG[ano];
+  const offset = ano === 2027 ? N_2026 : 0; // índice global do 1º mês do ano
+
   return ms.map((_, i) => {
-    const soma = d.categorias.reduce((acc, cat) =>
+    const gI = i + offset; // índice global deste mês
+
+    // Contas do ano atual
+    let soma = d.categorias.reduce((acc, cat) =>
       acc + cat.contas.reduce((a, ct) => {
-        const ini = parseInt(ct.inicio), par = parseInt(ct.parcelas), val = parseFloat(ct.valor) || 0;
-        if (i < ini || (par !== 0 && (i - ini) >= par)) return a;
+        const gIni = parseInt(ct.inicio) + offset;
+        const par = parseInt(ct.parcelas), val = parseFloat(ct.valor) || 0;
+        if (gI < gIni || (par !== 0 && (gI - gIni) >= par)) return a;
         return a + val;
       }, 0), 0);
+
+    // Carryover: contas parceladas de 2026 que transbordam para 2027
+    if (prevD && ano === 2027) {
+      prevD.categorias.forEach(cat => {
+        cat.contas.forEach(ct => {
+          const gIni = parseInt(ct.inicio); // 2026: local = global
+          const par = parseInt(ct.parcelas), val = parseFloat(ct.valor) || 0;
+          if (par === 0) return; // recorrentes são definidos por ano
+          if (gI >= gIni && (gI - gIni) < par) soma += val;
+        });
+      });
+    }
+
     return soma;
   });
 }
@@ -78,9 +99,9 @@ function cliMes(d, ano) {
   return a;
 }
 
-function calcFlow(d, ano, caixaOverride = null) {
+function calcFlow(d, ano, caixaOverride = null, prevD = null) {
   const ms = ANOS_CONFIG[ano];
-  const ge = gastosEmpMes(d, ano);
+  const ge = gastosEmpMes(d, ano, prevD);
   const cm = cliMes(d, ano);
   let cx = caixaOverride !== null ? caixaOverride : d.caixaInicial;
   return ms.map((mes, i) => {
@@ -410,11 +431,12 @@ export default function App() {
   const ms = ANOS_CONFIG[ano];
   const carry26 = data26 ? calcFlow(data26, 2026) : null;
   const carryover = ano === 2027 && carry26 ? carry26[carry26.length-1].caixa : null;
-  const fl = calcFlow(D, ano, carryover);
+  const prevD = ano === 2027 ? data26 : null;
+  const fl = calcFlow(D, ano, carryover, prevD);
   const last = fl[fl.length-1];
   const minR = fl.reduce((a,r) => r.caixa < a.caixa ? r : a);
   const cm = cliMes(D, ano);
-  const ge = gastosEmpMes(D, ano);
+  const ge = gastosEmpMes(D, ano, prevD);
   const user = session.user;
 
   // ── RENDER TABS ────────────────────────────────────────────
@@ -519,6 +541,9 @@ export default function App() {
           <div className="cli-list">
             {cat.contas.map((ct,cti)=>{
               const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=parseFloat(ct.valor)||0;
+              // Esconder contas onde todas as parcelas já passaram no mês selecionado
+              if(par!==0 && ini+par<=empMes) return null;
+              const continuaProxAno = ano===2026 && par!==0 && ini+par>N_2026;
               const isEditing = editingConta?.ci===empCard && editingConta?.cti===cti;
 
               if (isEditing) return (
@@ -544,6 +569,7 @@ export default function App() {
                   <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:2}}>
                     <span className="badge" style={{background:"#fdf0f0",color:"var(--red)",border:"1px solid #e0b0b0"}}>{fmt(val)}/mês</span>
                     {par>0&&<span className="badge b-gray">Total: {fmt(val*par)}</span>}
+                    {continuaProxAno&&<span className="badge" style={{background:"#eef4fb",color:"#1a5fa0",border:"1px solid #b0ccee"}}>continua em 2027</span>}
                     <button className="btn btn-sm" onClick={()=>setEditingConta({ci:empCard,cti})}>Editar</button>
                     <button className="btn-rm" onClick={()=>{if(confirm("Remover?"))update(d=>{d.categorias[empCard].contas.splice(cti,1);return d;});}}>×</button>
                   </div>
@@ -600,7 +626,7 @@ export default function App() {
                   {fmt(totalMes)}<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>/mês</span>
                 </div>
                 <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>
-                  {cat.contas.length} conta{cat.contas.length!==1?"s":""}
+                  {(()=>{const n=cat.contas.filter(ct=>parseInt(ct.parcelas)===0||parseInt(ct.inicio)+parseInt(ct.parcelas)>empMes).length;return `${n} conta${n!==1?"s":""}`;})()}
                   {cat.contas.length>0?` · ${fmt(total)}/ano`:""}
                 </div>
                 <div style={{marginTop:10,fontSize:12,color:cat.cor,fontWeight:500}}>Ver detalhes →</div>
