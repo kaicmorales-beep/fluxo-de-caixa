@@ -541,8 +541,9 @@ export default function App() {
           <div className="cli-list">
             {cat.contas.map((ct,cti)=>{
               const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=parseFloat(ct.valor)||0;
-              // Esconder contas onde todas as parcelas já passaram no mês selecionado
-              if(par!==0 && ini+par<=empMes) return null;
+              // Mostrar apenas contas ativas no mês selecionado
+              const ativaNoMes = empMes>=ini && (par===0||(empMes-ini)<par);
+              if(!ativaNoMes) return null;
               const continuaProxAno = ano===2026 && par!==0 && ini+par>N_2026;
               const isEditing = editingConta?.ci===empCard && editingConta?.cti===cti;
 
