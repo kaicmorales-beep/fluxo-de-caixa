@@ -555,15 +555,19 @@ export default function App() {
                   <div style={{flex:1}}>
                     <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{ct.nome}</div>
                     <div style={{fontSize:12,color:"var(--muted)"}}>
-                      {par===0?"Recorrente":par+"x"} · início {ms[ini]?ms[ini].substring(0,3):"?"}
+                      {par===0?"Fixa":par+"x"} · início {ms[ini]?ms[ini].substring(0,3):"?"}
                       {ct.vencimento?` · vence dia ${ct.vencimento}`:""}
                     </div>
-                    <div className="par-row">
-                      {ms.map((_,mi)=>{
-                        const ativo=mi>=ini&&(par===0||(mi-ini)<par);
-                        const fora=mi<ini||(par!==0&&(mi-ini)>=par);
-                        return <div key={mi} className="par-dot" title={ms[mi]} style={{background:ativo?cat.cor:fora?"#e2e1db":"#f0a0a0"}}/>;
-                      })}
+                    <div style={{marginTop:6}}>
+                      {par===0
+                        ? <span style={{fontSize:12,fontWeight:600,color:cat.cor}}>Fixa</span>
+                        : (()=>{
+                            const atual = empMes>=ini && (empMes-ini)<par ? (empMes-ini+1) : null;
+                            return <span style={{fontSize:13,fontWeight:700,fontFamily:"var(--mono)",color:atual?cat.cor:"var(--muted2)"}}>
+                              {atual?`${atual}/${par}`:`—/${par}`}
+                            </span>;
+                          })()
+                      }
                     </div>
                   </div>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:2}}>
@@ -688,14 +692,18 @@ export default function App() {
                   <div style={{flex:1}}>
                     <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{c.nome}</div>
                     <div style={{fontSize:12,color:"var(--muted)"}}>
-                      {TIPOS[c.tipo]||c.tipo||"—"} · início {ms[ini]||"?"} · {par===0?"recorrente":par+" parcela(s)"}
+                      {TIPOS[c.tipo]||c.tipo||"—"} · início {ms[ini]||"?"} · {par===0?"Fixa":par+" parcela(s)"}
                     </div>
-                    <div className="par-row">
-                      {ms.map((_,mi)=>{
-                        const ativo=c.status==="ativo"&&mi>=ini&&(par===0||(mi-ini)<par);
-                        const fora=mi<ini||(par!==0&&(mi-ini)>=par);
-                        return <div key={mi} className="par-dot" title={ms[mi]} style={{background:ativo?grupo.cor:fora?"#e2e1db":"#a8cfa8"}}/>;
-                      })}
+                    <div style={{marginTop:6}}>
+                      {par===0
+                        ? <span style={{fontSize:12,fontWeight:600,color:grupo.cor}}>Fixa</span>
+                        : (()=>{
+                            const atual = empMes>=ini && (empMes-ini)<par ? (empMes-ini+1) : null;
+                            return <span style={{fontSize:13,fontWeight:700,fontFamily:"var(--mono)",color:atual?grupo.cor:"var(--muted2)"}}>
+                              {atual?`${atual}/${par}`:`—/${par}`}
+                            </span>;
+                          })()
+                      }
                     </div>
                   </div>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:2}}>
@@ -868,7 +876,7 @@ export default function App() {
             <div className="fl"><label className="flabel">Parcelas</label>
               <select className="fi" value={form.parcelas} onChange={e=>setForm(p=>({...p,parcelas:parseInt(e.target.value)}))}>
                 {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
-                <option value={0}>Recorrente</option>
+                <option value={0}>Fixa (sem fim)</option>
               </select></div>
             <div className="fl"><label className="flabel">Vencimento (dia)</label>
               <input className="fi" type="number" min="1" max="31" value={form.vencimento} onChange={e=>setForm(p=>({...p,vencimento:e.target.value}))} placeholder="Ex: 10"/></div>
@@ -972,7 +980,7 @@ export default function App() {
             <div className="fl"><label className="flabel">Parcelas</label>
               <select className="fi" value={form.parcelas} onChange={e=>setForm(p=>({...p,parcelas:parseInt(e.target.value)}))}>
                 {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
-                <option value={0}>Recorrente</option>
+                <option value={0}>Fixa (sem fim)</option>
               </select></div>
             <div className="fl"><label className="flabel">Status</label>
               <select className="fi" value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))}>
