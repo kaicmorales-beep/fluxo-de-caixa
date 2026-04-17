@@ -346,6 +346,8 @@ export default function App() {
   const [collapsedCats, setCollapsedCats] = useState({});
   const [atvCard, setAtvCard] = useState(null); // null | "cliente" | "servico" | "comissao"
   const [editingIdx, setEditingIdx] = useState(null);
+  const [empCard, setEmpCard] = useState(null);  // null | number (índice da categoria)
+  const [editingConta, setEditingConta] = useState(null); // null | {ci, cti}
 
   // Auth listener
   useEffect(() => {
@@ -485,81 +487,122 @@ export default function App() {
   // ── EMPRESA ────────────────────────────────────────────────
   function renderEmpresa() {
     const totalGeral = ge.reduce((a,v)=>a+v,0);
+
+    function catTotal(cat) {
+      return cat.contas.reduce((a,ct)=>{
+        const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=parseFloat(ct.valor)||0;
+        return a+ms.reduce((acc,_,mi)=>mi>=ini&&(par===0||(mi-ini)<par)?acc+val:acc,0);
+      },0);
+    }
+
+    // ── DETALHE DE UMA CATEGORIA ──
+    if (empCard !== null) {
+      const cat = D.categorias[empCard];
+      if (!cat) { setEmpCard(null); return null; }
+      return (
+        <>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+            <button className="btn btn-sm" onClick={()=>{setEmpCard(null);setEditingConta(null);}}>← Voltar</button>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{width:10,height:10,borderRadius:"50%",background:cat.cor}}/>
+              <span style={{fontWeight:600,fontSize:17,color:cat.cor}}>{cat.nome}</span>
+            </div>
+            <span style={{fontSize:12,color:"var(--muted)"}}>{cat.contas.length} conta{cat.contas.length!==1?"s":""}</span>
+            <button className="btn btn-p btn-sm" style={{marginLeft:"auto"}} onClick={()=>setActiveTab("add-conta")}>+ Adicionar conta</button>
+          </div>
+
+          {cat.contas.length===0 && (
+            <div style={{color:"var(--muted)",fontSize:13,padding:"12px 0"}}>Nenhuma conta nessa categoria ainda.</div>
+          )}
+
+          <div className="cli-list">
+            {cat.contas.map((ct,cti)=>{
+              const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=parseFloat(ct.valor)||0;
+              const isEditing = editingConta?.ci===empCard && editingConta?.cti===cti;
+
+              if (isEditing) return (
+                <EditContaForm key={cti} ci={empCard} cti={cti} conta={ct} onDone={()=>setEditingConta(null)}/>
+              );
+
+              return (
+                <div className="cli-card" key={cti}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{ct.nome}</div>
+                    <div style={{fontSize:12,color:"var(--muted)"}}>
+                      {par===0?"Recorrente":par+"x"} · início {ms[ini]?ms[ini].substring(0,3):"?"}
+                      {ct.vencimento?` · vence dia ${ct.vencimento}`:""}
+                    </div>
+                    <div className="par-row">
+                      {ms.map((_,mi)=>{
+                        const ativo=mi>=ini&&(par===0||(mi-ini)<par);
+                        const fora=mi<ini||(par!==0&&(mi-ini)>=par);
+                        return <div key={mi} className="par-dot" title={ms[mi]} style={{background:ativo?cat.cor:fora?"#e2e1db":"#f0a0a0"}}/>;
+                      })}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:2}}>
+                    <span className="badge" style={{background:"#fdf0f0",color:"var(--red)",border:"1px solid #e0b0b0"}}>{fmt(val)}/mês</span>
+                    {par>0&&<span className="badge b-gray">Total: {fmt(val*par)}</span>}
+                    <button className="btn btn-sm" onClick={()=>setEditingConta({ci:empCard,cti})}>Editar</button>
+                    <button className="btn-rm" onClick={()=>{if(confirm("Remover?"))update(d=>{d.categorias[empCard].contas.splice(cti,1);return d;});}}>×</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      );
+    }
+
+    // ── CARDS DE CATEGORIAS ──
     return (
       <>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
-          <div><div className="pg-title">Despesas da empresa</div>
+          <div>
+            <div className="pg-title">Despesas da empresa</div>
             <div style={{fontSize:13,color:"var(--muted)"}}>Os totais alimentam automaticamente o fluxo.</div>
           </div>
           <button className="btn btn-p btn-sm" onClick={()=>setActiveTab("add-conta")}>+ Adicionar conta</button>
         </div>
-        <div className="cards-row">
-          <div className="card"><div className="stat-lbl">Total {ano}</div>
-            <div className="stat-val neg">{fmt(totalGeral)}</div></div>
-          {D.categorias.filter(cat=>cat.contas.reduce((a,ct)=>a+(parseFloat(ct.valor)||0),0)>0).map((cat,ci)=>(
-            <div className="card" key={ci}>
-              <div className="stat-lbl" style={{color:cat.cor}}>{cat.nome}</div>
-              <div className="stat-val" style={{color:cat.cor}}>{fmt(cat.contas.reduce((a,ct)=>{
-                const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=parseFloat(ct.valor)||0;
-                return a+ms.reduce((acc,_,mi)=>mi>=ini&&(par===0||(mi-ini)<par)?acc+val:acc,0);
-              },0))}</div>
-            </div>
-          ))}
-        </div>
-        {D.categorias.map((cat,ci)=>{
-          const collapsed = collapsedCats[ci];
-          const totalCat = cat.contas.reduce((a,ct)=>{
-            const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=parseFloat(ct.valor)||0;
-            return a+ms.reduce((acc,_,mi)=>mi>=ini&&(par===0||(mi-ini)<par)?acc+val:acc,0);
-          },0);
-          return (
-            <div className="emp-sec" key={ci}>
-              <div className="emp-sec-hdr" onClick={()=>setCollapsedCats(p=>({...p,[ci]:!p[ci]}))}>
-                <div style={{display:"flex",alignItems:"center",gap:8,fontWeight:600,fontSize:13}}>
-                  <div style={{width:9,height:9,borderRadius:"50%",background:cat.cor}}/>
-                  {cat.nome}
+
+        {totalGeral>0&&<div style={{fontFamily:"var(--mono)",fontSize:13,color:"var(--muted)",marginBottom:16}}>Total {ano}: <strong style={{color:"var(--red)"}}>{fmt(totalGeral)}</strong></div>}
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:16}}>
+          {D.categorias.map((cat,ci)=>{
+            const total=catTotal(cat);
+            return (
+              <div key={ci} onClick={()=>{setEmpCard(ci);setEditingConta(null);}} style={{
+                background:"#fff",border:`1.5px solid ${cat.cor}33`,borderRadius:"var(--r)",
+                padding:18,cursor:"pointer",transition:"box-shadow .15s",position:"relative",
+              }}
+                onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,.1)"}
+                onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}
+              >
+                <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
+                  <div style={{width:9,height:9,borderRadius:"50%",background:cat.cor,flexShrink:0}}/>
+                  <span style={{fontWeight:600,fontSize:13,color:cat.cor}}>{cat.nome}</span>
                 </div>
-                <div className="emp-sec-right">
-                  <span style={{fontFamily:"var(--mono)",fontSize:12,fontWeight:600,color:"var(--red)"}}>{totalCat>0?fmt(totalCat):""}</span>
-                  <button className="btn-rm" style={{fontSize:13}} onClick={e=>{e.stopPropagation();if(confirm(`Remover "${cat.nome}"?`))update(d=>{d.categorias.splice(ci,1);return d;});}}>×</button>
-                  <span style={{fontSize:11,color:"var(--muted)",transition:"transform .15s",display:"inline-block",transform:collapsed?"rotate(-90deg)":"rotate(0)"}}>▾</span>
+                <div style={{fontSize:20,fontWeight:700,fontFamily:"var(--mono)",color:"var(--red)"}}>
+                  {fmt(total)}<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>/ano</span>
                 </div>
+                <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>
+                  {cat.contas.length} conta{cat.contas.length!==1?"s":""}
+                  {cat.contas.length>0?` · ${fmt(Math.round(total/ms.length))}/mês`:""}
+                </div>
+                <div style={{marginTop:10,fontSize:12,color:cat.cor,fontWeight:500}}>Ver detalhes →</div>
+                <button className="btn-rm" style={{position:"absolute",top:10,right:10,fontSize:14}} onClick={e=>{e.stopPropagation();if(confirm(`Remover "${cat.nome}" e todas as contas?`))update(d=>{d.categorias.splice(ci,1);return d;});}}
+                >×</button>
               </div>
-              {!collapsed && (
-                <div>
-                  {cat.contas.length > 0 && (
-                    <>
-                      <div className="conta-head-row">
-                        <div className="conta-head-label">Conta</div>
-                        <div style={{display:"flex"}}>{ms.map(m=><div key={m} className="conta-head-col">{m.substring(0,3)}</div>)}</div>
-                      </div>
-                      {cat.contas.map((ct,cti)=>{
-                        const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=parseFloat(ct.valor)||0;
-                        return (
-                          <div className="conta-row" key={cti}>
-                            <div className="conta-nome">
-                              <button className="btn-rm" onClick={()=>{if(confirm("Remover?"))update(d=>{d.categorias[ci].contas.splice(cti,1);return d;});}}>×</button>
-                              <span>{ct.nome}</span>
-                              <span style={{fontSize:11,color:"var(--muted)",marginLeft:4}}>{par===0?"recorrente":par+"x"} · {ms[ini]?ms[ini].substring(0,3):""}</span>
-                            </div>
-                            <div className="conta-vals">
-                              {ms.map((_,mi)=>{
-                                const ativo=mi>=ini&&(par===0||(mi-ini)<par);
-                                return <div key={mi} className="conta-val-cell" style={{color:ativo?"var(--red)":"var(--muted2)"}}>{ativo?val>0?val.toLocaleString("pt-BR"):"0":"—"}</div>;
-                              })}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
-                  {cat.contas.length === 0 && <div style={{padding:12,fontSize:12,color:"var(--muted2)",fontStyle:"italic"}}>Nenhuma conta. Clique em "+ Adicionar conta".</div>}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        <button className="btn btn-sm" onClick={()=>{const nome=prompt("Nome da nova categoria:");if(!nome)return;const cores=["#c0392b","#d67e20","#8e44ad","#1a5fa0","#1a7a4a","#806020","#305090"];update(d=>{d.categorias.push({id:"cat_"+Date.now(),nome:nome.trim(),cor:cores[d.categorias.length%cores.length],contas:[]});return d;});}}>+ Nova categoria</button>
+            );
+          })}
+        </div>
+
+        <button className="btn btn-sm" onClick={()=>{
+          const nome=prompt("Nome da nova categoria:");
+          if(!nome)return;
+          const cores=["#c0392b","#d67e20","#8e44ad","#1a5fa0","#1a7a4a","#806020","#305090"];
+          update(d=>{d.categorias.push({id:"cat_"+Date.now(),nome:nome.trim(),cor:cores[d.categorias.length%cores.length],contas:[]});return d;});
+        }}>+ Nova categoria</button>
       </>
     );
   }
@@ -765,7 +808,7 @@ export default function App() {
 
   // Inline form components to access outer state via closure
   function AddContaForm() {
-    const [form, setForm] = useState({nome:"",catIdx:0,valor:"",inicio:0,parcelas:0});
+    const [form, setForm] = useState({nome:"",catIdx:empCard??0,valor:"",inicio:0,parcelas:0,vencimento:""});
     return (
       <>
         <div className="pg-title">Adicionar conta</div>
@@ -787,9 +830,17 @@ export default function App() {
                 {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
                 <option value={0}>Recorrente</option>
               </select></div>
+            <div className="fl"><label className="flabel">Vencimento (dia)</label>
+              <input className="fi" type="number" min="1" max="31" value={form.vencimento} onChange={e=>setForm(p=>({...p,vencimento:e.target.value}))} placeholder="Ex: 10"/></div>
           </div>
           <div style={{display:"flex",gap:10}}>
-            <button className="btn btn-p" onClick={()=>{if(!form.nome||!form.valor){alert("Preencha nome e valor.");return;}update(d=>{d.categorias[form.catIdx].contas.push({nome:form.nome,valor:parseFloat(form.valor),inicio:form.inicio,parcelas:form.parcelas,status:"ativo"});return d;});setActiveTab("empresa");showToast("Conta adicionada!");}}>+ Adicionar</button>
+            <button className="btn btn-p" onClick={()=>{
+              if(!form.nome||!form.valor){alert("Preencha nome e valor.");return;}
+              update(d=>{d.categorias[form.catIdx].contas.push({nome:form.nome,valor:parseFloat(form.valor),inicio:form.inicio,parcelas:form.parcelas,vencimento:form.vencimento||"",status:"ativo"});return d;});
+              setEmpCard(form.catIdx);
+              setActiveTab("empresa");
+              showToast("Conta adicionada!");
+            }}>+ Adicionar</button>
             <button className="btn" onClick={()=>setActiveTab("empresa")}>Cancelar</button>
           </div>
         </div>
@@ -797,8 +848,64 @@ export default function App() {
     );
   }
 
+  function EditContaForm({ci, cti, conta, onDone}) {
+    const [form, setForm] = useState({
+      nome: conta.nome||"",
+      catIdx: ci,
+      valor: conta.valor||"",
+      inicio: conta.inicio??0,
+      parcelas: conta.parcelas??0,
+      vencimento: conta.vencimento||"",
+    });
+    return (
+      <div className="form-wrap" style={{border:"1.5px solid #e0b0b0",background:"#fff8f8"}}>
+        <div style={{fontWeight:600,fontSize:13,marginBottom:12,color:"var(--red)"}}>Editando: {conta.nome}</div>
+        <div className="fg">
+          <div className="fl"><label className="flabel">Nome</label>
+            <input className="fi" value={form.nome} onChange={e=>setForm(p=>({...p,nome:e.target.value}))}/></div>
+          <div className="fl"><label className="flabel">Mover para categoria</label>
+            <select className="fi" value={form.catIdx} onChange={e=>setForm(p=>({...p,catIdx:parseInt(e.target.value)}))}>
+              {D.categorias.map((c,i)=><option key={i} value={i}>{c.nome}</option>)}
+            </select></div>
+          <div className="fl"><label className="flabel">Valor (R$)</label>
+            <input className="fi" type="number" value={form.valor} onChange={e=>setForm(p=>({...p,valor:e.target.value}))}/></div>
+          <div className="fl"><label className="flabel">Mês de início</label>
+            <select className="fi" value={form.inicio} onChange={e=>setForm(p=>({...p,inicio:parseInt(e.target.value)}))}>
+              {ms.map((m,i)=><option key={i} value={i}>{m}</option>)}
+            </select></div>
+          <div className="fl"><label className="flabel">Parcelas</label>
+            <select className="fi" value={form.parcelas} onChange={e=>setForm(p=>({...p,parcelas:parseInt(e.target.value)}))}>
+              {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
+              <option value={0}>Recorrente</option>
+            </select></div>
+          <div className="fl"><label className="flabel">Vencimento (dia)</label>
+            <input className="fi" type="number" min="1" max="31" value={form.vencimento} onChange={e=>setForm(p=>({...p,vencimento:e.target.value}))} placeholder="Ex: 10"/></div>
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button className="btn btn-p" onClick={()=>{
+            if(!form.nome||!form.valor){alert("Preencha nome e valor.");return;}
+            update(d=>{
+              const ct={...d.categorias[ci].contas[cti],...form,valor:parseFloat(form.valor)};
+              if(form.catIdx!==ci){
+                d.categorias[ci].contas.splice(cti,1);
+                d.categorias[form.catIdx].contas.push(ct);
+                setEmpCard(form.catIdx);
+              } else {
+                d.categorias[ci].contas[cti]=ct;
+              }
+              return d;
+            });
+            onDone();
+            showToast("Salvo!");
+          }}>Salvar</button>
+          <button className="btn" onClick={onDone}>Cancelar</button>
+        </div>
+      </div>
+    );
+  }
+
   function AddClienteForm() {
-    const [form, setForm] = useState({nome:"",tipoReceita:"cliente",tipo:"assessor",valor:"",inicio:ano===2026?1:0,parcelas:0,status:"ativo"});
+    const [form, setForm] = useState({nome:"",tipoReceita:"cliente",tipo:"assessor",valor:"",inicio:ano===2026?1:0,parcelas:0,status:"ativo",vencimento:""});
     const TIPOS={assessor:"Assessor — consórcio",trafego:"Tráfego pago",ecossistema:"Ecossistema completo",consorcio:"Consórcio próprio",outro:"Outro"};
     return (
       <>
@@ -833,6 +940,8 @@ export default function App() {
                 <option value="proposta">Proposta enviada</option>
                 <option value="prospecto">Prospecto</option>
               </select></div>
+            <div className="fl"><label className="flabel">Vencimento (dia)</label>
+              <input className="fi" type="number" min="1" max="31" value={form.vencimento} onChange={e=>setForm(p=>({...p,vencimento:e.target.value}))} placeholder="Ex: 5"/></div>
           </div>
           <div style={{display:"flex",gap:10}}>
             <button className="btn btn-p" onClick={()=>{
@@ -859,6 +968,7 @@ export default function App() {
       inicio: item.inicio??0,
       parcelas: item.parcelas??0,
       status: item.status||"ativo",
+      vencimento: item.vencimento||"",
     });
     return (
       <div className="form-wrap" style={{border:"1.5px solid #b0ccee",background:"#f5f9ff"}}>
@@ -893,6 +1003,8 @@ export default function App() {
               <option value="proposta">Proposta enviada</option>
               <option value="prospecto">Prospecto</option>
             </select></div>
+          <div className="fl"><label className="flabel">Vencimento (dia)</label>
+            <input className="fi" type="number" min="1" max="31" value={form.vencimento} onChange={e=>setForm(p=>({...p,vencimento:e.target.value}))} placeholder="Ex: 5"/></div>
         </div>
         <div style={{display:"flex",gap:10}}>
           <button className="btn btn-p" onClick={()=>{
