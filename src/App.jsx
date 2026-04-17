@@ -370,6 +370,7 @@ export default function App() {
   const [empCard, setEmpCard] = useState(null);  // null | number (índice da categoria)
   const [editingConta, setEditingConta] = useState(null); // null | {ci, cti}
   const [empMes, setEmpMes] = useState(0);
+  const [atvMes, setAtvMes] = useState(0);
 
   // Auth listener
   useEffect(() => {
@@ -677,15 +678,22 @@ export default function App() {
       const items = D.clientes.map((c,i)=>({...c,_i:i})).filter(c=>(c.tipoReceita||"cliente")===atvCard);
       return (
         <>
-          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
             <button className="btn btn-sm" onClick={()=>{setAtvCard(null);setEditingIdx(null);}}>← Voltar</button>
             <div style={{fontWeight:600,fontSize:17,color:grupo.cor}}>{grupo.label}</div>
-            <span style={{fontSize:12,color:"var(--muted)"}}>{items.length} item{items.length!==1?"s":""}</span>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto"}}>
+              <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={atvMes===0} onClick={()=>setAtvMes(m=>m-1)}>‹</button>
+              <select className="fi" style={{width:"auto",padding:"5px 10px",fontSize:13}} value={atvMes} onChange={e=>setAtvMes(parseInt(e.target.value))}>
+                {ms.map((m,i)=><option key={i} value={i}>{m}</option>)}
+              </select>
+              <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={atvMes===ms.length-1} onClick={()=>setAtvMes(m=>m+1)}>›</button>
+            </div>
+            <button className="btn btn-p btn-sm" onClick={()=>setActiveTab("clientes")}>+ Receita</button>
           </div>
 
-          {items.length===0 && (
+          {items.filter(c=>{const ini=parseInt(c.inicio),par=parseInt(c.parcelas);return atvMes>=ini&&(par===0||(atvMes-ini)<par);}).length===0 && (
             <div style={{color:"var(--muted)",fontSize:13,padding:"12px 0"}}>
-              Nenhum item aqui ainda. Use "+ Receita" para adicionar.
+              Nenhuma receita ativa em {ms[atvMes]}.
             </div>
           )}
 
@@ -693,6 +701,10 @@ export default function App() {
             {items.map(c=>{
               const i=c._i, ini=parseInt(c.inicio), par=parseInt(c.parcelas), val=parseFloat(c.valor)||0;
               const totalR=ms.reduce((acc,_,mi)=>mi<ini||(par!==0&&(mi-ini)>=par)?acc:acc+val,0);
+
+              // Só mostra se ativa no mês selecionado
+              const ativaNoMes = atvMes>=ini && (par===0||(atvMes-ini)<par);
+              if(!ativaNoMes) return null;
 
               if(editingIdx===i) return <EditItemForm key={i} idx={i} item={c} onDone={()=>setEditingIdx(null)}/>;
 
@@ -707,7 +719,7 @@ export default function App() {
                       {par===0
                         ? <span style={{fontSize:12,fontWeight:600,color:grupo.cor}}>Fixa</span>
                         : (()=>{
-                            const atual = empMes>=ini && (empMes-ini)<par ? (empMes-ini+1) : null;
+                            const atual = atvMes>=ini && (atvMes-ini)<par ? (atvMes-ini+1) : null;
                             return <span style={{fontSize:13,fontWeight:700,fontFamily:"var(--mono)",color:atual?grupo.cor:"var(--muted2)"}}>
                               {atual?`${atual}/${par}`:`—/${par}`}
                             </span>;
@@ -752,14 +764,24 @@ export default function App() {
     const totalGeral = D.clientes.filter(c=>c.status==="ativo").reduce((a,c)=>a+(parseFloat(c.valor)||0),0);
     return (
       <>
-        <div className="pg-title">Receitas</div>
-        <div className="pg-sub">Clique em um grupo para ver e editar os itens.</div>
-        {totalGeral>0&&<div style={{fontFamily:"var(--mono)",fontSize:13,color:"var(--muted)",marginBottom:16}}>Total ativo: <strong style={{color:"#1a6e1a"}}>{fmt(totalGeral)}/mês</strong></div>}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4,flexWrap:"wrap",gap:10}}>
+          <div><div className="pg-title" style={{marginBottom:2}}>Receitas</div>
+            <div className="pg-sub" style={{marginBottom:0}}>Clique em um grupo para ver e editar os itens.</div></div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{fontSize:12,color:"var(--muted)"}}>Mês:</span>
+            <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={atvMes===0} onClick={()=>setAtvMes(m=>m-1)}>‹</button>
+            <select className="fi" style={{width:"auto",padding:"5px 10px",fontSize:13}} value={atvMes} onChange={e=>setAtvMes(parseInt(e.target.value))}>
+              {ms.map((m,i)=><option key={i} value={i}>{m}</option>)}
+            </select>
+            <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={atvMes===ms.length-1} onClick={()=>setAtvMes(m=>m+1)}>›</button>
+          </div>
+        </div>
+        {totalGeral>0&&<div style={{fontFamily:"var(--mono)",fontSize:13,color:"var(--muted)",marginBottom:16}}>Total ativo em {ms[atvMes]}: <strong style={{color:"#1a6e1a"}}>{fmt(D.clientes.filter(c=>c.status==="ativo").reduce((a,c)=>{const ini=parseInt(c.inicio),par=parseInt(c.parcelas),val=parseFloat(c.valor)||0;return atvMes>=ini&&(par===0||(atvMes-ini)<par)?a+val:a;},0))}/mês</strong></div>}
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
           {GRUPOS.map(g=>{
             const items=D.clientes.map((c,i)=>({...c,_i:i})).filter(c=>(c.tipoReceita||"cliente")===g.key);
-            const ativos=items.filter(c=>c.status==="ativo");
-            const totalMes=ativos.reduce((a,c)=>a+(parseFloat(c.valor)||0),0);
+            const ativosNoMes=items.filter(c=>c.status==="ativo"&&(()=>{const ini=parseInt(c.inicio),par=parseInt(c.parcelas);return atvMes>=ini&&(par===0||(atvMes-ini)<par);})());
+            const totalMes=ativosNoMes.reduce((a,c)=>a+(parseFloat(c.valor)||0),0);
             return (
               <div key={g.key} onClick={()=>setAtvCard(g.key)} style={{
                 background:g.bg, border:`1.5px solid ${g.brd}`, borderRadius:"var(--r)",
@@ -773,7 +795,7 @@ export default function App() {
                   {fmt(totalMes)}<span style={{fontSize:11,fontWeight:400,color:"var(--muted)"}}>/mês</span>
                 </div>
                 <div style={{fontSize:12,color:"var(--muted)",marginTop:4}}>
-                  {ativos.length} ativo{ativos.length!==1?"s":""} · {items.length} total
+                  {ativosNoMes.length} ativo{ativosNoMes.length!==1?"s":""} em {ms[atvMes]}
                 </div>
                 <div style={{marginTop:12,fontSize:12,color:g.cor,fontWeight:500}}>Ver detalhes →</div>
               </div>
