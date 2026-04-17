@@ -583,11 +583,11 @@ export default function App() {
                   <span style={{fontWeight:600,fontSize:13,color:cat.cor}}>{cat.nome}</span>
                 </div>
                 <div style={{fontSize:20,fontWeight:700,fontFamily:"var(--mono)",color:"var(--red)"}}>
-                  {fmt(total)}<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>/ano</span>
+                  {fmt(Math.round(total/ms.length))}<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>/mês</span>
                 </div>
                 <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>
                   {cat.contas.length} conta{cat.contas.length!==1?"s":""}
-                  {cat.contas.length>0?` · ${fmt(Math.round(total/ms.length))}/mês`:""}
+                  {cat.contas.length>0?` · ${fmt(total)}/ano`:""}
                 </div>
                 <div style={{marginTop:10,fontSize:12,color:cat.cor,fontWeight:500}}>Ver detalhes →</div>
                 <button className="btn-rm" style={{position:"absolute",top:10,right:10,fontSize:14}} onClick={e=>{e.stopPropagation();if(confirm(`Remover "${cat.nome}" e todas as contas?`))update(d=>{d.categorias.splice(ci,1);return d;});}}
