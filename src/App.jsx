@@ -605,11 +605,13 @@ export default function App() {
 
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
           {totalGeral>0&&<span style={{fontFamily:"var(--mono)",fontSize:13,color:"var(--muted)"}}>Total {ano}: <strong style={{color:"var(--red)"}}>{fmt(totalGeral)}</strong></span>}
-          <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
+          <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
             <span style={{fontSize:12,color:"var(--muted)"}}>Mês:</span>
+            <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={empMes===0} onClick={()=>setEmpMes(m=>m-1)}>‹</button>
             <select className="fi" style={{width:"auto",padding:"5px 10px",fontSize:13}} value={empMes} onChange={e=>setEmpMes(parseInt(e.target.value))}>
               {ms.map((m,i)=><option key={i} value={i}>{m}</option>)}
             </select>
+            <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={empMes===ms.length-1} onClick={()=>setEmpMes(m=>m+1)}>›</button>
           </div>
         </div>
 
