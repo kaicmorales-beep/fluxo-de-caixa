@@ -348,6 +348,7 @@ export default function App() {
   const [editingIdx, setEditingIdx] = useState(null);
   const [empCard, setEmpCard] = useState(null);  // null | number (índice da categoria)
   const [editingConta, setEditingConta] = useState(null); // null | {ci, cti}
+  const [empMes, setEmpMes] = useState(0);
 
   // Auth listener
   useEffect(() => {
@@ -565,11 +566,24 @@ export default function App() {
           <button className="btn btn-p btn-sm" onClick={()=>setActiveTab("add-conta")}>+ Adicionar conta</button>
         </div>
 
-        {totalGeral>0&&<div style={{fontFamily:"var(--mono)",fontSize:13,color:"var(--muted)",marginBottom:16}}>Total {ano}: <strong style={{color:"var(--red)"}}>{fmt(totalGeral)}</strong></div>}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+          {totalGeral>0&&<span style={{fontFamily:"var(--mono)",fontSize:13,color:"var(--muted)"}}>Total {ano}: <strong style={{color:"var(--red)"}}>{fmt(totalGeral)}</strong></span>}
+          <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:12,color:"var(--muted)"}}>Mês:</span>
+            <select className="fi" style={{width:"auto",padding:"5px 10px",fontSize:13}} value={empMes} onChange={e=>setEmpMes(parseInt(e.target.value))}>
+              {ms.map((m,i)=><option key={i} value={i}>{m}</option>)}
+            </select>
+          </div>
+        </div>
 
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:16}}>
           {D.categorias.map((cat,ci)=>{
             const total=catTotal(cat);
+            const totalMes=cat.contas.reduce((a,ct)=>{
+              const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=parseFloat(ct.valor)||0;
+              const ativo=empMes>=ini&&(par===0||(empMes-ini)<par);
+              return a+(ativo?val:0);
+            },0);
             return (
               <div key={ci} onClick={()=>{setEmpCard(ci);setEditingConta(null);}} style={{
                 background:"#fff",border:`1.5px solid ${cat.cor}33`,borderRadius:"var(--r)",
@@ -583,7 +597,7 @@ export default function App() {
                   <span style={{fontWeight:600,fontSize:13,color:cat.cor}}>{cat.nome}</span>
                 </div>
                 <div style={{fontSize:20,fontWeight:700,fontFamily:"var(--mono)",color:"var(--red)"}}>
-                  {fmt(Math.round(total/ms.length))}<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>/mês</span>
+                  {fmt(totalMes)}<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>/mês</span>
                 </div>
                 <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>
                   {cat.contas.length} conta{cat.contas.length!==1?"s":""}
