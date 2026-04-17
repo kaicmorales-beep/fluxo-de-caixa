@@ -344,6 +344,8 @@ export default function App() {
   const [saving, setSaving] = useState(false); // "idle"|"saving"|"saved"
   const [toast, setToast] = useState("");
   const [collapsedCats, setCollapsedCats] = useState({});
+  const [atvCard, setAtvCard] = useState(null); // null | "cliente" | "servico" | "comissao"
+  const [editingIdx, setEditingIdx] = useState(null);
 
   // Auth listener
   useEffect(() => {
@@ -417,8 +419,8 @@ export default function App() {
     {id:"fluxo",     label:"Fluxo"},
     {id:"empresa",   label:"Empresa"},
     {id:"add-conta", label:"+ Conta"},
-    {id:"clientes",  label:"+ Cliente"},
-    {id:"ativos",    label:"Clientes ativos"},
+    {id:"clientes",  label:"+ Receita"},
+    {id:"ativos",    label:"Receitas"},
     {id:"cenarios",  label:"Cenários"},
     {id:"reserva",   label:"Reserva"},
   ];
@@ -562,52 +564,122 @@ export default function App() {
     );
   }
 
-  // ── CLIENTES ATIVOS ────────────────────────────────────────
+  // ── RECEITAS (antigo Clientes ativos) ─────────────────────
+  const GRUPOS = [
+    {key:"cliente",  label:"Clientes",  cor:"#2d6a2d", bg:"#eaf4ea", brd:"#b0d4b0"},
+    {key:"servico",  label:"Serviços",  cor:"#1a5fa0", bg:"#eef4fb", brd:"#b0ccee"},
+    {key:"comissao", label:"Comissões", cor:"#8e44ad", bg:"#f5eefb", brd:"#d4b0e8"},
+  ];
+  const SBADGE = {ativo:"b-g",proposta:"b-w",prospecto:"b-gray"};
+  const SLBL   = {ativo:"Ativo",proposta:"Proposta enviada",prospecto:"Prospecto"};
+  const TIPOS  = {assessor:"Assessor — consórcio",trafego:"Tráfego pago",ecossistema:"Ecossistema completo",consorcio:"Consórcio próprio",outro:"Outro"};
+
   function renderAtivos() {
-    const TIPOS = {assessor:"Assessor — consórcio",trafego:"Tráfego pago",ecossistema:"Ecossistema completo",consorcio:"Consórcio próprio",outro:"Outro"};
-    const SBADGE = {ativo:"b-g",proposta:"b-w",prospecto:"b-gray"};
-    const SLBL = {ativo:"Ativo",proposta:"Proposta enviada",prospecto:"Prospecto"};
-    if(!D.clientes.length) return <div style={{color:"var(--muted)",fontSize:13,padding:"16px 0"}}>Nenhum cliente cadastrado. Vá em "+ Cliente".</div>;
-    return (
-      <>
-        <div className="cli-list">
-          {D.clientes.map((c,i)=>{
-            const ini=parseInt(c.inicio),par=parseInt(c.parcelas),val=parseFloat(c.valor)||0;
-            const totalR=ms.reduce((acc,_,mi)=>mi<ini||(par!==0&&(mi-ini)>=par)?acc:acc+val,0);
-            return (
-              <div className="cli-card" key={i}>
-                <div>
-                  <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{c.nome}</div>
-                  <div style={{fontSize:12,color:"var(--muted)"}}>{TIPOS[c.tipo]||c.tipo} · início {ms[ini]||"?"} · {par===0?"recorrente":par+" parcela(s)"}</div>
-                  <div className="par-row">
-                    {ms.map((_,mi)=>{
-                      const ativo=c.status==="ativo"&&mi>=ini&&(par===0||(mi-ini)<par);
-                      const fora=mi<ini||(par!==0&&(mi-ini)>=par);
-                      return <div key={mi} className="par-dot" title={ms[mi]} style={{background:ativo?"#2d6a2d":fora?"#e2e1db":"#a8cfa8"}}/>;
-                    })}
+    // ── DETALHE DE UM GRUPO ──
+    if (atvCard) {
+      const grupo = GRUPOS.find(g=>g.key===atvCard);
+      const items = D.clientes.map((c,i)=>({...c,_i:i})).filter(c=>(c.tipoReceita||"cliente")===atvCard);
+      return (
+        <>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18}}>
+            <button className="btn btn-sm" onClick={()=>{setAtvCard(null);setEditingIdx(null);}}>← Voltar</button>
+            <div style={{fontWeight:600,fontSize:17,color:grupo.cor}}>{grupo.label}</div>
+            <span style={{fontSize:12,color:"var(--muted)"}}>{items.length} item{items.length!==1?"s":""}</span>
+          </div>
+
+          {items.length===0 && (
+            <div style={{color:"var(--muted)",fontSize:13,padding:"12px 0"}}>
+              Nenhum item aqui ainda. Use "+ Receita" para adicionar.
+            </div>
+          )}
+
+          <div className="cli-list">
+            {items.map(c=>{
+              const i=c._i, ini=parseInt(c.inicio), par=parseInt(c.parcelas), val=parseFloat(c.valor)||0;
+              const totalR=ms.reduce((acc,_,mi)=>mi<ini||(par!==0&&(mi-ini)>=par)?acc:acc+val,0);
+
+              if(editingIdx===i) return <EditItemForm key={i} idx={i} item={c} onDone={()=>setEditingIdx(null)}/>;
+
+              return (
+                <div className="cli-card" key={i}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{c.nome}</div>
+                    <div style={{fontSize:12,color:"var(--muted)"}}>
+                      {TIPOS[c.tipo]||c.tipo||"—"} · início {ms[ini]||"?"} · {par===0?"recorrente":par+" parcela(s)"}
+                    </div>
+                    <div className="par-row">
+                      {ms.map((_,mi)=>{
+                        const ativo=c.status==="ativo"&&mi>=ini&&(par===0||(mi-ini)<par);
+                        const fora=mi<ini||(par!==0&&(mi-ini)>=par);
+                        return <div key={mi} className="par-dot" title={ms[mi]} style={{background:ativo?grupo.cor:fora?"#e2e1db":"#a8cfa8"}}/>;
+                      })}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:2}}>
+                    <span className={`badge ${SBADGE[c.status]||"b-gray"}`}>{SLBL[c.status]||c.status}</span>
+                    <span className="badge b-g">{fmt(val)}/mês</span>
+                    {par>0&&<span className="badge b-gray">Total: {fmt(totalR)}</span>}
+                    <button className="btn btn-sm" onClick={()=>setEditingIdx(i)}>Editar</button>
+                    <button className="btn-rm" onClick={()=>{if(confirm("Remover?"))update(d=>{d.clientes.splice(i,1);return d;});}}>×</button>
                   </div>
                 </div>
-                <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:2}}>
-                  <span className={`badge ${SBADGE[c.status]||"b-gray"}`}>{SLBL[c.status]||c.status}</span>
-                  <span className="badge b-g">{fmt(val)}/mês</span>
-                  {par>0&&<span className="badge b-gray">Total: {fmt(totalR)}</span>}
-                  <button className="btn-rm" onClick={()=>{if(confirm("Remover?"))update(d=>{d.clientes.splice(i,1);return d;});}}>×</button>
+              );
+            })}
+          </div>
+
+          {items.some(c=>c.status==="ativo")&&(
+            <>
+              <hr className="dv"/>
+              <div className="sec-label">Receita por mês</div>
+              <div className="tbl-wrap" style={{maxWidth:280}}>
+                <table><thead><tr><th style={{textAlign:"left"}}>Mês</th><th>Total</th></tr></thead>
+                  <tbody>{ms.map((m,mi)=>{
+                    const v=items.filter(c=>c.status==="ativo").reduce((a,c)=>{
+                      const ini=parseInt(c.inicio),par=parseInt(c.parcelas),val=parseFloat(c.valor)||0;
+                      return mi>=ini&&(par===0||(mi-ini)<par)?a+val:a;
+                    },0);
+                    return v>0?<tr key={mi}><td className="td-m">{m}</td><td className="td-n pos" style={{fontWeight:600}}>{fmt(v)}</td></tr>:null;
+                  })}</tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </>
+      );
+    }
+
+    // ── CARDS DE GRUPOS ──
+    const totalGeral = D.clientes.filter(c=>c.status==="ativo").reduce((a,c)=>a+(parseFloat(c.valor)||0),0);
+    return (
+      <>
+        <div className="pg-title">Receitas</div>
+        <div className="pg-sub">Clique em um grupo para ver e editar os itens.</div>
+        {totalGeral>0&&<div style={{fontFamily:"var(--mono)",fontSize:13,color:"var(--muted)",marginBottom:16}}>Total ativo: <strong style={{color:"#1a6e1a"}}>{fmt(totalGeral)}/mês</strong></div>}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
+          {GRUPOS.map(g=>{
+            const items=D.clientes.map((c,i)=>({...c,_i:i})).filter(c=>(c.tipoReceita||"cliente")===g.key);
+            const ativos=items.filter(c=>c.status==="ativo");
+            const totalMes=ativos.reduce((a,c)=>a+(parseFloat(c.valor)||0),0);
+            return (
+              <div key={g.key} onClick={()=>setAtvCard(g.key)} style={{
+                background:g.bg, border:`1.5px solid ${g.brd}`, borderRadius:"var(--r)",
+                padding:18, cursor:"pointer", transition:"box-shadow .15s",
+              }}
+                onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,.1)"}
+                onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}
+              >
+                <div style={{fontWeight:600,fontSize:14,color:g.cor,marginBottom:8}}>{g.label}</div>
+                <div style={{fontSize:22,fontWeight:700,fontFamily:"var(--mono)",color:g.cor}}>
+                  {fmt(totalMes)}<span style={{fontSize:11,fontWeight:400,color:"var(--muted)"}}>/mês</span>
                 </div>
+                <div style={{fontSize:12,color:"var(--muted)",marginTop:4}}>
+                  {ativos.length} ativo{ativos.length!==1?"s":""} · {items.length} total
+                </div>
+                <div style={{marginTop:12,fontSize:12,color:g.cor,fontWeight:500}}>Ver detalhes →</div>
               </div>
             );
           })}
         </div>
-        {D.clientes.some(c=>c.status==="ativo")&&(
-          <>
-            <hr className="dv"/>
-            <div className="sec-label">Receita por mês</div>
-            <div className="tbl-wrap" style={{maxWidth:280}}>
-              <table><thead><tr><th style={{textAlign:"left"}}>Mês</th><th>Total</th></tr></thead>
-                <tbody>{cm.map((v,i)=>v>0?<tr key={i}><td className="td-m">{ms[i]}</td><td className="td-n pos" style={{fontWeight:600}}>{fmt(v)}</td></tr>:null)}</tbody>
-              </table>
-            </div>
-          </>
-        )}
       </>
     );
   }
@@ -686,7 +758,7 @@ export default function App() {
     if (activeTab === "empresa") return renderEmpresa();
     if (activeTab === "add-conta") return <AddContaForm />;
     if (activeTab === "clientes") return <AddClienteForm />;
-    if (activeTab === "ativos") return <><div className="pg-title">Clientes ativos</div><div className="pg-sub">Visão de todos os clientes.</div>{renderAtivos()}</>;
+    if (activeTab === "ativos") return renderAtivos();
     if (activeTab === "cenarios") return <><div className="pg-title">Simulação de cenários</div><div className="pg-sub">Impacto de novos clientes no caixa.</div>{renderCenarios()}</>;
     if (activeTab === "reserva") return <><div className="pg-title">Meta de reserva</div><div className="pg-sub">Progresso em direção à reserva de 3 meses.</div>{renderReserva()}</>;
   }
@@ -726,16 +798,22 @@ export default function App() {
   }
 
   function AddClienteForm() {
-    const [form, setForm] = useState({nome:"",tipo:"assessor",valor:"",inicio:ano===2026?1:0,parcelas:0,status:"ativo"});
+    const [form, setForm] = useState({nome:"",tipoReceita:"cliente",tipo:"assessor",valor:"",inicio:ano===2026?1:0,parcelas:0,status:"ativo"});
     const TIPOS={assessor:"Assessor — consórcio",trafego:"Tráfego pago",ecossistema:"Ecossistema completo",consorcio:"Consórcio próprio",outro:"Outro"};
     return (
       <>
-        <div className="pg-title">Adicionar cliente</div>
-        <div className="pg-sub">Defina nome, valor, mês de início, parcelas e status.</div>
+        <div className="pg-title">Adicionar receita</div>
+        <div className="pg-sub">Defina o tipo, nome, valor, mês de início e parcelas.</div>
         <div className="form-wrap">
           <div className="fg">
+            <div className="fl"><label className="flabel">Tipo de receita</label>
+              <select className="fi" value={form.tipoReceita} onChange={e=>setForm(p=>({...p,tipoReceita:e.target.value}))}>
+                <option value="cliente">Cliente</option>
+                <option value="servico">Serviço</option>
+                <option value="comissao">Comissão</option>
+              </select></div>
             <div className="fl"><label className="flabel">Nome</label><input className="fi" value={form.nome} onChange={e=>setForm(p=>({...p,nome:e.target.value}))} placeholder="Ex: Assessor João"/></div>
-            <div className="fl"><label className="flabel">Tipo</label>
+            <div className="fl"><label className="flabel">Subtipo</label>
               <select className="fi" value={form.tipo} onChange={e=>setForm(p=>({...p,tipo:e.target.value}))}>
                 {Object.entries(TIPOS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
               </select></div>
@@ -756,9 +834,77 @@ export default function App() {
                 <option value="prospecto">Prospecto</option>
               </select></div>
           </div>
-          <button className="btn btn-p" onClick={()=>{if(!form.nome||!form.valor){alert("Preencha nome e valor.");return;}update(d=>{d.clientes.push({...form,valor:parseFloat(form.valor)});return d;});setActiveTab("ativos");showToast("Cliente adicionado!");}}>+ Adicionar</button>
+          <div style={{display:"flex",gap:10}}>
+            <button className="btn btn-p" onClick={()=>{
+              if(!form.nome||!form.valor){alert("Preencha nome e valor.");return;}
+              update(d=>{d.clientes.push({...form,valor:parseFloat(form.valor)});return d;});
+              setAtvCard(form.tipoReceita);
+              setActiveTab("ativos");
+              showToast("Receita adicionada!");
+            }}>+ Adicionar</button>
+            <button className="btn" onClick={()=>setActiveTab("ativos")}>Cancelar</button>
+          </div>
         </div>
       </>
+    );
+  }
+
+  function EditItemForm({idx, item, onDone}) {
+    const TIPOS={assessor:"Assessor — consórcio",trafego:"Tráfego pago",ecossistema:"Ecossistema completo",consorcio:"Consórcio próprio",outro:"Outro"};
+    const [form, setForm] = useState({
+      nome: item.nome||"",
+      tipoReceita: item.tipoReceita||"cliente",
+      tipo: item.tipo||"assessor",
+      valor: item.valor||"",
+      inicio: item.inicio??0,
+      parcelas: item.parcelas??0,
+      status: item.status||"ativo",
+    });
+    return (
+      <div className="form-wrap" style={{border:"1.5px solid #b0ccee",background:"#f5f9ff"}}>
+        <div style={{fontWeight:600,fontSize:13,marginBottom:12,color:"#1a5fa0"}}>Editando: {item.nome}</div>
+        <div className="fg">
+          <div className="fl"><label className="flabel">Tipo de receita</label>
+            <select className="fi" value={form.tipoReceita} onChange={e=>setForm(p=>({...p,tipoReceita:e.target.value}))}>
+              <option value="cliente">Cliente</option>
+              <option value="servico">Serviço</option>
+              <option value="comissao">Comissão</option>
+            </select></div>
+          <div className="fl"><label className="flabel">Nome</label>
+            <input className="fi" value={form.nome} onChange={e=>setForm(p=>({...p,nome:e.target.value}))}/></div>
+          <div className="fl"><label className="flabel">Subtipo</label>
+            <select className="fi" value={form.tipo} onChange={e=>setForm(p=>({...p,tipo:e.target.value}))}>
+              {Object.entries(TIPOS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+            </select></div>
+          <div className="fl"><label className="flabel">Valor (R$)</label>
+            <input className="fi" type="number" value={form.valor} onChange={e=>setForm(p=>({...p,valor:e.target.value}))}/></div>
+          <div className="fl"><label className="flabel">Mês de início</label>
+            <select className="fi" value={form.inicio} onChange={e=>setForm(p=>({...p,inicio:parseInt(e.target.value)}))}>
+              {ms.map((m,i)=><option key={i} value={i}>{m}</option>)}
+            </select></div>
+          <div className="fl"><label className="flabel">Parcelas</label>
+            <select className="fi" value={form.parcelas} onChange={e=>setForm(p=>({...p,parcelas:parseInt(e.target.value)}))}>
+              {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
+              <option value={0}>Recorrente</option>
+            </select></div>
+          <div className="fl"><label className="flabel">Status</label>
+            <select className="fi" value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))}>
+              <option value="ativo">Ativo</option>
+              <option value="proposta">Proposta enviada</option>
+              <option value="prospecto">Prospecto</option>
+            </select></div>
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button className="btn btn-p" onClick={()=>{
+            if(!form.nome||!form.valor){alert("Preencha nome e valor.");return;}
+            update(d=>{d.clientes[idx]={...d.clientes[idx],...form,valor:parseFloat(form.valor)};return d;});
+            if(form.tipoReceita!==item.tipoReceita) setAtvCard(form.tipoReceita);
+            onDone();
+            showToast("Salvo!");
+          }}>Salvar</button>
+          <button className="btn" onClick={onDone}>Cancelar</button>
+        </div>
+      </div>
     );
   }
 
