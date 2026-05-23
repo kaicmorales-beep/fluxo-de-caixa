@@ -149,6 +149,21 @@ async function saveToDB(userId, ano, dados) {
   }
 }
 
+async function loadKanbanFromDB(userId) {
+  const { data, error } = await supabase
+    .from("fluxo_dados")
+    .select("dados")
+    .eq("user_id", userId)
+    .eq("ano", 0)
+    .single();
+  if (error || !data) return { leads: [] };
+  try {
+    const d = data.dados;
+    if (!Array.isArray(d.leads)) d.leads = [];
+    return d;
+  } catch { return { leads: [] }; }
+}
+
 // ── STYLES ───────────────────────────────────────────────────
 const S = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -324,6 +339,43 @@ const S = `
     .tabs{padding:0 8px}
     .tab{padding:10px 10px;font-size:12px}
   }
+
+  /* KANBAN */
+  .kanban-board{display:flex;gap:14px;overflow-x:auto;padding-bottom:12px;align-items:flex-start;min-height:400px}
+  .kanban-board::-webkit-scrollbar{height:6px}
+  .kanban-board::-webkit-scrollbar-track{background:var(--surface);border-radius:3px}
+  .kanban-board::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+  .kanban-col{min-width:220px;max-width:220px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);display:flex;flex-direction:column;gap:0;overflow:hidden;flex-shrink:0}
+  .kanban-col-hdr{padding:10px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+  .kanban-col-title{font-size:12px;font-weight:600;letter-spacing:.04em}
+  .kanban-col-count{font-size:11px;background:var(--border);color:var(--muted);border-radius:10px;padding:1px 7px;font-weight:600}
+  .kanban-col-body{padding:8px;display:flex;flex-direction:column;gap:7px;flex:1}
+  .kanban-card{background:var(--white);border:1px solid var(--border);border-radius:8px;padding:10px 11px;cursor:pointer;transition:box-shadow .15s,border-color .15s}
+  .kanban-card:hover{box-shadow:0 3px 10px rgba(0,0,0,.1);border-color:var(--border2)}
+  .kanban-card-name{font-size:13px;font-weight:600;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kanban-card-val{font-size:12px;font-family:var(--mono);color:#1a6e1a;font-weight:600}
+  .kanban-card-meta{font-size:11px;color:var(--muted);margin-top:3px}
+  .kanban-card-actions{display:flex;gap:5px;margin-top:8px;justify-content:flex-end}
+  .kb-btn{font-size:11px;padding:3px 7px;border-radius:5px;border:1px solid var(--border2);background:var(--white);color:var(--muted);cursor:pointer;transition:all .1s;font-family:var(--sans)}
+  .kb-btn:hover{border-color:var(--green);color:var(--green)}
+  .kb-btn:disabled{opacity:.35;cursor:not-allowed}
+
+  /* LEAD MODAL */
+  .lead-modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
+  .lead-modal{background:var(--white);border-radius:14px;width:100%;max-width:620px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+  .lead-modal-hdr{padding:18px 22px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+  .lead-modal-title{font-size:16px;font-weight:600}
+  .lead-modal-body{overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:16px;flex:1}
+  .lead-modal-ftr{padding:14px 22px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex-shrink:0}
+  .modal-section{display:flex;flex-direction:column;gap:8px}
+  .modal-section-title{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:2px}
+  .comment-list{display:flex;flex-direction:column;gap:8px;max-height:200px;overflow-y:auto}
+  .comment-item{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:9px 11px}
+  .comment-date{font-size:10px;color:var(--muted);margin-bottom:3px}
+  .comment-text{font-size:13px;line-height:1.5}
+  .contract-warning{background:#fff8f0;border:1px solid #f0c060;border-radius:8px;padding:10px 13px;font-size:12px;color:#8a5c00}
+  .contract-warning ul{margin:6px 0 0 16px;line-height:1.8}
+  .col-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:12px;background:var(--surface);color:var(--muted);border:1px solid var(--border)}
 `;
 
 // ── LOGIN PAGE ────────────────────────────────────────────────
@@ -371,6 +423,10 @@ export default function App() {
   const [editingConta, setEditingConta] = useState(null); // null | {ci, cti}
   const [empMes, setEmpMes] = useState(0);
   const [atvMes, setAtvMes] = useState(0);
+  const [dataKanban, setDataKanban] = useState(null);
+  const [kanbanModalId, setKanbanModalId] = useState(null);
+  const [kanbanEditForm, setKanbanEditForm] = useState(null);
+  const [kanbanCommentText, setKanbanCommentText] = useState("");
 
   // Auth listener
   useEffect(() => {
@@ -388,9 +444,10 @@ export default function App() {
   useEffect(() => {
     if (!session) return;
     const uid = session.user.id;
-    Promise.all([loadFromDB(uid, 2026), loadFromDB(uid, 2027)]).then(([d26, d27]) => {
+    Promise.all([loadFromDB(uid, 2026), loadFromDB(uid, 2027), loadKanbanFromDB(uid)]).then(([d26, d27, dk]) => {
       setData26(d26);
       setData27(d27);
+      setDataKanban(dk);
     });
   }, [session]);
 
@@ -425,6 +482,23 @@ export default function App() {
     setTimeout(() => setToast(""), 2800);
   }
 
+  const saveKanbanData = useCallback(async (leads) => {
+    if (!session) return;
+    try {
+      await saveToDB(session.user.id, 0, { leads });
+    } catch (err) {
+      console.error("[fluxo-caixa] Erro ao salvar kanban:", err?.message || err);
+    }
+  }, [session]);
+
+  function updateKanban(updater) {
+    setDataKanban(prev => {
+      const next = updater(JSON.parse(JSON.stringify(prev || { leads: [] })));
+      saveKanbanData(next.leads);
+      return next;
+    });
+  }
+
   if (loadingAuth) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"var(--muted)",fontFamily:"var(--sans)"}}>Carregando...</div>;
   if (!session) return <><style>{S}</style><LoginPage /></>;
   if (!D) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"var(--muted)",fontFamily:"var(--sans)"}}>Carregando dados...</div>;
@@ -449,6 +523,7 @@ export default function App() {
     {id:"ativos",    label:"Receitas"},
     {id:"cenarios",  label:"Cenários"},
     {id:"reserva",   label:"Reserva"},
+    {id:"kanban",    label:"Kanban"},
   ];
 
   // ── FLUXO TABLE ────────────────────────────────────────────
@@ -816,7 +891,7 @@ export default function App() {
               const totalMes=ativosNoMes.reduce((a,c)=>a+(parseFloat(c.valor)||0),0);
               const selecionado=mi===atvMes;
               return (
-                <div key={mi} onClick={()=>setAtvMes(mi)} style={{
+                <div key={mi} onClick={()=>{setAtvMes(mi);setAtvCard("cliente");}} style={{
                   minWidth:150,flexShrink:0,background:selecionado?"#eaf4ea":"#fff",
                   border:`1.5px solid ${selecionado?"#2d6a2d":"#e2e1db"}`,
                   borderRadius:"var(--r)",padding:"12px 14px",cursor:"pointer",
@@ -928,6 +1003,7 @@ export default function App() {
     if (activeTab === "ativos") return renderAtivos();
     if (activeTab === "cenarios") return <><div className="pg-title">Simulação de cenários</div><div className="pg-sub">Impacto de novos clientes no caixa.</div>{renderCenarios()}</>;
     if (activeTab === "reserva") return <><div className="pg-title">Meta de reserva</div><div className="pg-sub">Progresso em direção à reserva de 3 meses.</div>{renderReserva()}</>;
+    if (activeTab === "kanban") return renderKanban();
   }
 
   // Inline form components to access outer state via closure
@@ -1141,6 +1217,518 @@ export default function App() {
           <button className="btn" onClick={onDone}>Cancelar</button>
         </div>
       </div>
+    );
+  }
+
+  // ── KANBAN ─────────────────────────────────────────────────
+  const KANBAN_COLS = [
+    {id:"em_contato",       label:"Em contato",              cor:"#1a5fa0"},
+    {id:"follow_up",        label:"Follow-Up",               cor:"#8e44ad"},
+    {id:"prod_contrato",    label:"Produção contrato",       cor:"#d67e20"},
+    {id:"contrato_enviado", label:"Contrato enviado",        cor:"#8a5c00"},
+    {id:"contrato_assinado",label:"Contrato assinado",       cor:"#2d6a2d"},
+    {id:"fechou",           label:"Fechou",                  cor:"#1a4a1e"},
+  ];
+
+  const CAMPOS_CONTRATO = [
+    {k:"razaoSocial",        label:"Razão social"},
+    {k:"cnpj",               label:"CNPJ"},
+    {k:"enderecoEmpresa",    label:"Endereço da empresa (com CEP)"},
+    {k:"nomeResponsavel",    label:"Nome do responsável legal"},
+    {k:"cpfResponsavel",     label:"CPF do responsável"},
+    {k:"estadoCivil",        label:"Estado civil"},
+    {k:"profissao",          label:"Profissão"},
+    {k:"enderecoResponsavel",label:"Endereço do responsável"},
+  ];
+
+  function converterParaCliente(lead) {
+    const targetAno = lead.anoInicio || 2026;
+    const targetSet = targetAno === 2026 ? setData26 : setData27;
+    const novoCliente = {
+      nome: lead.nome || "Cliente",
+      tipoReceita: lead.tipoReceita || "cliente",
+      tipo: lead.tipo || "outro",
+      valor: parseFloat(lead.valorContrato) || 0,
+      inicio: parseInt(lead.mesInicio) || 0,
+      parcelas: parseInt(lead.periodoContrato) || 0,
+      status: "ativo",
+      vencimento: "",
+    };
+    targetSet(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      next.clientes.push(novoCliente);
+      saveData(next, targetAno);
+      return next;
+    });
+  }
+
+  function generateContract(lead) {
+    const mesesNome = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+    const hoje = new Date();
+    const dd = String(hoje.getDate()).padStart(2,"0");
+    const mm = String(hoje.getMonth()+1).padStart(2,"0");
+    const aaaa = hoje.getFullYear();
+    const dataHoje = `${dd}/${mm}/${aaaa}`;
+    const mesNomeHoje = mesesNome[hoje.getMonth()];
+
+    const periodoN = parseInt(lead.periodoContrato) || 3;
+    const valor = parseFloat(lead.valorContrato) || 0;
+    const totalContrato = valor * (periodoN || 1);
+
+    function fmtBRL(v) {
+      return v.toLocaleString("pt-BR", {minimumFractionDigits:2,maximumFractionDigits:2});
+    }
+    function addMeses(ano, mesNum0, n) {
+      const total = (ano * 12 + mesNum0) + n;
+      return { ano: Math.floor(total/12), mes: (total%12)+1 };
+    }
+
+    const endD = addMeses(hoje.getFullYear(), hoje.getMonth(), periodoN);
+    const dataFim = `20/${String(endD.mes).padStart(2,"0")}/${endD.ano}`;
+
+    const parcelasHtml = periodoN > 0
+      ? Array.from({length: periodoN}, (_,i) => {
+          const d = addMeses(hoje.getFullYear(), hoje.getMonth(), i+1);
+          const ord = ["1ª","2ª","3ª","4ª","5ª","6ª","7ª","8ª","9ª","10ª","11ª","12ª"][i] || `${i+1}ª`;
+          return `<p>${ord} Parcela: R$ ${fmtBRL(valor)} com vencimento em 20/${String(d.mes).padStart(2,"0")}/${d.ano}.</p>`;
+        }).join("")
+      : `<p>Pagamento único de R$ ${fmtBRL(totalContrato)} a combinar entre as partes.</p>`;
+
+    const honorariosTexto = periodoN > 1
+      ? `o valor total de R$ ${fmtBRL(totalContrato)}, dividido em ${periodoN} (${
+          ["uma","duas","três","quatro","cinco","seis","sete","oito","nove","dez","onze","doze"][periodoN-1]||periodoN
+        }) parcelas de R$ ${fmtBRL(valor)}.`
+      : `o valor de R$ ${fmtBRL(totalContrato)}, pago em parcela única.`;
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Contrato — ${lead.nome||"Cliente"}</title>
+<style>
+  body{font-family:Arial,sans-serif;max-width:780px;margin:40px auto;padding:24px 32px;line-height:1.75;color:#1a1a18;font-size:14px}
+  h1{font-size:15px;font-weight:bold;text-align:center;text-transform:uppercase;margin-bottom:24px;letter-spacing:.03em}
+  h2{font-size:13px;font-weight:bold;text-transform:uppercase;margin-top:26px;margin-bottom:10px;border-bottom:1px solid #ddd;padding-bottom:4px}
+  h3{font-size:14px;font-weight:bold;margin-top:18px;margin-bottom:6px}
+  p{margin-bottom:8px;text-align:justify}
+  .party-block{margin-bottom:16px}
+  .sig-area{display:flex;justify-content:space-around;margin-top:70px;gap:20px}
+  .sig-block{text-align:center;flex:1;max-width:280px}
+  .sig-line{border-top:1.5px solid #333;margin-bottom:10px;margin-top:50px}
+  @media print{body{margin:0;padding:24px}}
+</style>
+</head>
+<body>
+<h1>Contrato de Prestação de Serviços de Gestão de Canais de Vendas e CRM</h1>
+
+<h2>Das Partes</h2>
+
+<h3>Contratante</h3>
+<div class="party-block">
+  <p>${lead.razaoSocial}, pessoa jurídica de direito privado, inscrita no CNPJ nº ${lead.cnpj}, com sede na ${lead.enderecoEmpresa}, neste ato representada por:</p>
+  <p>${lead.nomeResponsavel}, ${lead.profissao}, ${lead.estadoCivil}, inscrito(a) no CPF nº ${lead.cpfResponsavel}, residente e domiciliado(a) na ${lead.enderecoResponsavel}.</p>
+</div>
+
+<h3>Contratada</h3>
+<div class="party-block">
+  <p>KAIC MORALE, pessoa jurídica de direito privado, inscrita no CNPJ nº 58.282.395/0001-42, com sede na Rua Décio Piola, nº 4991, Parque Moema, CEP 14409-181, Franca/SP, neste ato representada por:</p>
+  <p>Kaic Henrique Morales, inscrito no CPF nº 458.183.348-56, residente e domiciliado na Rua Décio Piola, nº 4991, Parque Moema, CEP 14409-181, Franca/SP.</p>
+</div>
+
+<p>As partes celebram o presente Contrato de Prestação de Serviços mediante as cláusulas e condições abaixo.</p>
+
+<h2>Cláusula 1 – Do Objeto</h2>
+<p>O presente contrato tem por objeto a prestação de serviços de gestão de canais de vendas, tráfego pago e CRM pela <strong>CONTRATADA</strong> em favor da <strong>CONTRATANTE</strong>.</p>
+
+<h2>Cláusula 2 – Dos Entregáveis</h2>
+<p>A <strong>CONTRATADA</strong> realizará os seguintes serviços:</p>
+<p>I. Planejamento estratégico de campanhas;<br>
+II. Configuração e organização das contas de anúncios;<br>
+III. Gestão e otimização de campanhas;<br>
+IV. Criação e segmentação de públicos;<br>
+V. Monitoramento e análise de métricas;<br>
+VI. Relatórios periódicos;<br>
+VII. Reuniões estratégicas;<br>
+VIII. Estruturação e organização do CRM;<br>
+IX. Criação e acompanhamento de fluxos de relacionamento e recuperação de clientes;<br>
+X. Segmentação de base de clientes;<br>
+XI. Gestão de relacionamento com clientes;<br>
+XII. Suporte via WhatsApp em horário comercial.</p>
+<p><strong>Parágrafo Único:</strong> Serviços não previstos nesta cláusula serão considerados adicionais e dependerão de aprovação prévia entre as partes.</p>
+
+<h2>Cláusula 3 – Das Responsabilidades da Contratada</h2>
+<p>A <strong>CONTRATADA</strong> compromete-se a:</p>
+<p>I. Executar os serviços contratados com ética, técnica e profissionalismo;<br>
+II. Desenvolver estratégias compatíveis com os objetivos definidos pela <strong>CONTRATANTE</strong>;<br>
+III. Apresentar relatórios e análises periódicas;<br>
+IV. Manter sigilo sobre informações e dados recebidos;<br>
+V. Comunicar situações que possam impactar a execução dos serviços;<br>
+VI. Disponibilizar suporte via WhatsApp em horário comercial.</p>
+
+<h2>Cláusula 4 – Das Limitações de Responsabilidade</h2>
+<p>A <strong>CONTRATADA</strong> não será responsável por:</p>
+<p>I. Garantia de faturamento, lucro ou resultados específicos;<br>
+II. Bloqueios, suspensões ou restrições aplicadas por plataformas de terceiros;<br>
+III. Alterações em políticas, algoritmos ou diretrizes das plataformas;<br>
+IV. Falhas técnicas de sistemas ou serviços de terceiros;<br>
+V. Informações incorretas fornecidas pela <strong>CONTRATANTE</strong>;<br>
+VI. Atrasos decorrentes da ausência de materiais, aprovações ou acessos necessários;<br>
+VII. Custos de ferramentas, plataformas, softwares ou serviços de terceiros;<br>
+VIII. Produção de materiais gráficos, vídeos, fotos, websites ou conteúdos não previstos neste contrato.</p>
+
+<h2>Cláusula 5 – Das Responsabilidades da Contratante</h2>
+<p>A <strong>CONTRATANTE</strong> compromete-se a:</p>
+<p>I. Disponibilizar os acessos necessários para execução dos serviços;<br>
+II. Fornecer materiais, informações e documentos solicitados;<br>
+III. Efetuar os pagamentos nas datas acordadas;<br>
+IV. Manter formas de pagamento válidas nas plataformas utilizadas;<br>
+V. Nomear um responsável para comunicação com a <strong>CONTRATADA</strong>;<br>
+VI. Aprovar campanhas e estratégias dentro dos prazos necessários;<br>
+VII. Arcar integralmente com os investimentos em mídia e demais custos operacionais das campanhas.</p>
+
+<h2>Cláusula 6 – Da Vigência</h2>
+<p>A vigência deste contrato terá início em ${dataHoje} e término em ${dataFim}. Ao final do período, as partes poderão renegociar condições, valores e escopo para eventual renovação mediante novo acordo formal.</p>
+<p><strong>Parágrafo Primeiro:</strong> Por se tratar de contrato com prazo determinado, eventual desistência da <strong>CONTRATANTE</strong> antes do término da vigência não a eximirá da obrigação de pagamento dos valores contratados até o encerramento do período acordado.</p>
+<p><strong>Parágrafo Segundo:</strong> Encerrado o prazo contratual, as partes poderão renegociar valores, escopo, condições comerciais e prazo para eventual renovação mediante novo acordo formal.</p>
+
+<h2>Cláusula 7 – Dos Honorários e Condições de Pagamento</h2>
+<p>Pelos serviços prestados, a <strong>CONTRATANTE</strong> pagará à <strong>CONTRATADA</strong> ${honorariosTexto}</p>
+<h3>Cronograma de pagamento</h3>
+${parcelasHtml}
+<p><strong>Parágrafo Primeiro:</strong> Os pagamentos deverão ser realizados via PIX, transferência bancária ou outro meio acordado entre as partes.</p>
+<p><strong>Parágrafo Segundo:</strong> Em caso de atraso superior a 7 (sete) dias corridos após o vencimento, a <strong>CONTRATADA</strong> poderá suspender imediatamente a prestação dos serviços até a regularização dos valores pendentes.</p>
+<p><strong>Parágrafo Terceiro:</strong> Permanecendo a inadimplência por período superior a 30 (trinta) dias corridos, a <strong>CONTRATADA</strong> poderá considerar rescindido o contrato por culpa exclusiva da <strong>CONTRATANTE</strong>, permanecendo exigíveis todos os valores contratados até o término da vigência originalmente pactuada.</p>
+<p><strong>Parágrafo Quarto:</strong> A <strong>CONTRATANTE</strong> autoriza expressamente que, após notificação formal e não havendo regularização da pendência no prazo de 10 (dez) dias corridos, seu débito possa ser encaminhado para cobrança extrajudicial, protesto em cartório e inscrição nos órgãos de proteção ao crédito, incluindo SPC Brasil e Serasa, nos termos da legislação vigente.</p>
+
+<h2>Cláusula 8 – Das Taxas, Multas e Cobranças de Terceiros</h2>
+<p>Toda e qualquer cobrança, multa, taxa, juros, estorno, bloqueio financeiro ou encargo realizado por plataformas de anúncios, administradoras de cartão, instituições financeiras ou meios de pagamento será de responsabilidade exclusiva da <strong>CONTRATANTE</strong>.</p>
+<p>A <strong>CONTRATADA</strong> não possui controle sobre tais cobranças e não responderá por quaisquer prejuízos decorrentes delas.</p>
+
+<h2>Cláusula 9 – Da Proteção de Dados</h2>
+<p>As partes comprometem-se a cumprir integralmente a Lei Geral de Proteção de Dados – LGPD (Lei nº 13.709/2018).</p>
+<p>A <strong>CONTRATADA</strong> compromete-se a:</p>
+<p>I. Utilizar os dados recebidos exclusivamente para execução dos serviços contratados;<br>
+II. Adotar medidas razoáveis de segurança para proteção das informações acessadas;<br>
+III. Não compartilhar dados ou informações da <strong>CONTRATANTE</strong> com terceiros sem autorização prévia, exceto quando exigido por lei.</p>
+
+<h2>Cláusula 10 – Das Disposições Gerais</h2>
+<p>I. Não existe vínculo trabalhista, societário ou de exclusividade entre as partes.<br>
+II. Todas as campanhas, estruturas, públicos, configurações e ativos desenvolvidos durante a vigência contratual permanecerão de propriedade da <strong>CONTRATANTE</strong> após o encerramento do contrato.<br>
+III. A <strong>CONTRATADA</strong> poderá recusar a veiculação de conteúdos que violem leis, normas ou políticas das plataformas utilizadas.<br>
+IV. A <strong>CONTRATANTE</strong> declara estar ciente de que não existe garantia de resultados financeiros específicos, uma vez que fatores externos podem impactar diretamente o desempenho das campanhas.<br>
+V. O presente contrato somente poderá ser alterado mediante acordo formal entre as partes.<br>
+VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATANTE</strong> do cumprimento integral das obrigações financeiras assumidas neste contrato, especialmente por se tratar de contrato com prazo determinado e reserva de agenda operacional da <strong>CONTRATADA</strong>.</p>
+
+<h2>Cláusula 11 – Do Foro</h2>
+<p>Fica eleito o Foro da Comarca de Franca/SP para dirimir quaisquer dúvidas ou controvérsias oriundas deste contrato, com renúncia expressa a qualquer outro, por mais privilegiado que seja.</p>
+
+<h2>Assinaturas</h2>
+<p style="text-align:center">Franca-SP, ${dd} de ${mesNomeHoje} de ${aaaa}.</p>
+<div class="sig-area">
+  <div class="sig-block">
+    <div class="sig-line"></div>
+    <p>${lead.nomeResponsavel}<br>CPF nº ${lead.cpfResponsavel}</p>
+  </div>
+  <div class="sig-block">
+    <div class="sig-line"></div>
+    <p>Kaic Henrique Morales<br>CPF nº 458.183.348-56</p>
+  </div>
+</div>
+</body>
+</html>`;
+
+    const w = window.open("");
+    if (w) { w.document.write(html); w.document.close(); }
+  }
+
+  function renderKanban() {
+    const leads = dataKanban?.leads || [];
+
+    // ── MODAL ABERTO ──
+    if (kanbanModalId) {
+      const lead = leads.find(l => l.id === kanbanModalId);
+      if (!lead) { setKanbanModalId(null); return null; }
+
+      const form = kanbanEditForm || lead;
+      const colIdx = KANBAN_COLS.findIndex(c => c.id === form.coluna);
+      const camposFaltando = CAMPOS_CONTRATO.filter(c => !form[c.k]?.toString().trim());
+      const contratoOk = camposFaltando.length === 0;
+
+      function salvarLead() {
+        updateKanban(d => {
+          const idx = d.leads.findIndex(l => l.id === kanbanModalId);
+          if (idx >= 0) d.leads[idx] = { ...d.leads[idx], ...form };
+          return d;
+        });
+        setKanbanEditForm(null);
+        showToast("Lead salvo!");
+      }
+
+      function moverColuna(direcao) {
+        const novoIdx = colIdx + direcao;
+        if (novoIdx < 0 || novoIdx >= KANBAN_COLS.length) return;
+        const novaColuna = KANBAN_COLS[novoIdx].id;
+        const formAtualizado = { ...form, coluna: novaColuna };
+        if (novaColuna === "fechou") {
+          if (!confirm(`Mover "${form.nome}" para Fechou e adicionar como cliente ativo?`)) return;
+          converterParaCliente(formAtualizado);
+          showToast(`${form.nome} adicionado como cliente ativo!`);
+        }
+        setKanbanEditForm(formAtualizado);
+        updateKanban(d => {
+          const idx = d.leads.findIndex(l => l.id === kanbanModalId);
+          if (idx >= 0) d.leads[idx] = { ...d.leads[idx], ...formAtualizado };
+          return d;
+        });
+      }
+
+      function adicionarComentario() {
+        if (!kanbanCommentText.trim()) return;
+        const novoComentario = { texto: kanbanCommentText.trim(), data: new Date().toISOString() };
+        const comentariosAtualizados = [...(form.comentarios || []), novoComentario];
+        const formAtualizado = { ...form, comentarios: comentariosAtualizados };
+        setKanbanEditForm(formAtualizado);
+        updateKanban(d => {
+          const idx = d.leads.findIndex(l => l.id === kanbanModalId);
+          if (idx >= 0) d.leads[idx] = { ...d.leads[idx], comentarios: comentariosAtualizados };
+          return d;
+        });
+        setKanbanCommentText("");
+      }
+
+      function excluirLead() {
+        if (!confirm(`Excluir o lead "${form.nome}"?`)) return;
+        updateKanban(d => { d.leads = d.leads.filter(l => l.id !== kanbanModalId); return d; });
+        setKanbanModalId(null);
+        setKanbanEditForm(null);
+      }
+
+      const fi = (k, label, type="text", placeholder="") => (
+        <div className="fl">
+          <label className="flabel">{label}</label>
+          <input className="fi" type={type} placeholder={placeholder}
+            value={form[k]||""}
+            onChange={e=>setKanbanEditForm(p=>({...(p||lead),[k]:e.target.value}))}/>
+        </div>
+      );
+      const fsel = (k, label, opts) => (
+        <div className="fl">
+          <label className="flabel">{label}</label>
+          <select className="fi" value={form[k]||opts[0].v}
+            onChange={e=>setKanbanEditForm(p=>({...(p||lead),[k]:e.target.value}))}>
+            {opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+          </select>
+        </div>
+      );
+
+      const colAtual = KANBAN_COLS[colIdx];
+      const mesesOpcoes2026 = ANOS_CONFIG[2026].map((m,i)=>({v:i,l:`${m} 2026`}));
+      const mesesOpcoes2027 = ANOS_CONFIG[2027].map((m,i)=>({v:i,l:`${m} 2027`}));
+      const anoInicio = parseInt(form.anoInicio)||2026;
+      const mesOptions = anoInicio===2026 ? mesesOpcoes2026 : mesesOpcoes2027;
+
+      return (
+        <div className="lead-modal-ov" onClick={e=>{if(e.target===e.currentTarget){setKanbanModalId(null);setKanbanEditForm(null);}}}>
+          <div className="lead-modal">
+            <div className="lead-modal-hdr">
+              <div>
+                <div className="lead-modal-title">{form.nome||"Lead sem nome"}</div>
+                <div style={{marginTop:4}}>
+                  <span className="col-badge" style={{background: colAtual?.cor+"22", color: colAtual?.cor, border:`1px solid ${colAtual?.cor}55`}}>
+                    {colAtual?.label}
+                  </span>
+                </div>
+              </div>
+              <button className="btn-rm" style={{fontSize:22}} onClick={()=>{setKanbanModalId(null);setKanbanEditForm(null);}}>×</button>
+            </div>
+
+            <div className="lead-modal-body">
+              {/* Informações básicas */}
+              <div className="modal-section">
+                <div className="modal-section-title">Informações básicas</div>
+                <div className="fg">
+                  {fi("nome","Nome","text","Ex: João Silva")}
+                  {fi("telefone","Telefone","text","(17) 99999-9999")}
+                  {fi("email","E-mail","email","joao@email.com")}
+                  {fi("valorContrato","Valor mensal (R$)","number","1600")}
+                  {fsel("periodoContrato","Período (parcelas)",[
+                    {v:"0",l:"Fixo (sem fim)"},
+                    ...[1,2,3,4,5,6,9,12].map(n=>({v:String(n),l:`${n} ${n===1?"mês":"meses"}`}))
+                  ])}
+                  {fsel("tipoReceita","Tipo de receita",[
+                    {v:"cliente",l:"Cliente"},
+                    {v:"servico",l:"Serviço"},
+                    {v:"comissao",l:"Comissão"},
+                  ])}
+                  {fsel("tipo","Subtipo",[
+                    {v:"trafego",l:"Tráfego pago"},
+                    {v:"assessor",l:"Assessor — consórcio"},
+                    {v:"ecossistema",l:"Ecossistema completo"},
+                    {v:"consorcio",l:"Consórcio próprio"},
+                    {v:"outro",l:"Outro"},
+                  ])}
+                  {fsel("anoInicio","Ano de início",[{v:"2026",l:"2026"},{v:"2027",l:"2027"}])}
+                  <div className="fl">
+                    <label className="flabel">Mês de início</label>
+                    <select className="fi" value={form.mesInicio??0}
+                      onChange={e=>setKanbanEditForm(p=>({...(p||lead),mesInicio:parseInt(e.target.value)}))}>
+                      {mesOptions.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dados do contrato */}
+              <div className="modal-section">
+                <div className="modal-section-title">
+                  Dados do contrato
+                  {camposFaltando.length > 0
+                    ? <span style={{marginLeft:8,fontSize:10,color:"var(--warn)",fontWeight:600,textTransform:"none"}}>({camposFaltando.length} campo(s) faltando)</span>
+                    : <span style={{marginLeft:8,fontSize:10,color:"#1a6e1a",fontWeight:600,textTransform:"none"}}> ✓ completo</span>
+                  }
+                </div>
+                <div className="fg">
+                  {fi("razaoSocial","Razão social","text","Ex: Empresa LTDA")}
+                  {fi("cnpj","CNPJ","text","00.000.000/0001-00")}
+                  <div className="fl" style={{gridColumn:"1/-1"}}>
+                    <label className="flabel">Endereço da empresa (com CEP)</label>
+                    <input className="fi" placeholder="Rua, nº, Bairro, Cidade/UF, CEP" value={form.enderecoEmpresa||""}
+                      onChange={e=>setKanbanEditForm(p=>({...(p||lead),enderecoEmpresa:e.target.value}))}/>
+                  </div>
+                  {fi("nomeResponsavel","Nome do responsável legal","text","Nome completo")}
+                  {fi("cpfResponsavel","CPF do responsável","text","000.000.000-00")}
+                  {fi("estadoCivil","Estado civil","text","Solteiro(a)")}
+                  {fi("profissao","Profissão","text","Advogado(a)")}
+                  <div className="fl" style={{gridColumn:"1/-1"}}>
+                    <label className="flabel">Endereço do responsável</label>
+                    <input className="fi" placeholder="Rua, nº, Bairro, Cidade/UF, CEP" value={form.enderecoResponsavel||""}
+                      onChange={e=>setKanbanEditForm(p=>({...(p||lead),enderecoResponsavel:e.target.value}))}/>
+                  </div>
+                </div>
+              </div>
+
+              {/* Aviso de contrato - apenas na coluna "contrato_enviado" */}
+              {form.coluna === "contrato_enviado" && (
+                <div className="modal-section">
+                  <div className="modal-section-title">Contrato</div>
+                  {!contratoOk ? (
+                    <div className="contract-warning">
+                      <strong>Campos necessários para gerar o contrato:</strong>
+                      <ul>{camposFaltando.map(c=><li key={c.k}>{c.label}</li>)}</ul>
+                    </div>
+                  ) : (
+                    <button className="btn btn-p" style={{alignSelf:"flex-start"}} onClick={()=>generateContract(form)}>
+                      Gerar Contrato
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Comentários */}
+              <div className="modal-section">
+                <div className="modal-section-title">Registros / Comentários</div>
+                {(form.comentarios||[]).length === 0
+                  ? <div style={{fontSize:12,color:"var(--muted)",fontStyle:"italic"}}>Nenhum registro ainda.</div>
+                  : <div className="comment-list">
+                      {[...(form.comentarios||[])].reverse().map((c,i)=>(
+                        <div className="comment-item" key={i}>
+                          <div className="comment-date">{new Date(c.data).toLocaleString("pt-BR")}</div>
+                          <div className="comment-text">{c.texto}</div>
+                        </div>
+                      ))}
+                    </div>
+                }
+                <div style={{display:"flex",gap:8,marginTop:6}}>
+                  <textarea className="fi" rows={2} placeholder="Escrever registro..."
+                    style={{resize:"vertical",flex:1}}
+                    value={kanbanCommentText}
+                    onChange={e=>setKanbanCommentText(e.target.value)}
+                    onKeyDown={e=>{if(e.key==="Enter"&&e.ctrlKey)adicionarComentario();}}/>
+                  <button className="btn btn-p" style={{alignSelf:"flex-end",whiteSpace:"nowrap"}} onClick={adicionarComentario}>
+                    Registrar
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="lead-modal-ftr">
+              <button className="btn btn-sm" disabled={colIdx===0} onClick={()=>moverColuna(-1)}>← Voltar</button>
+              <button className="btn btn-p btn-sm" disabled={colIdx===KANBAN_COLS.length-1} onClick={()=>moverColuna(1)}>
+                {colIdx === KANBAN_COLS.length-2 ? "Fechar negócio →" : "Avançar →"}
+              </button>
+              <button className="btn btn-p btn-sm" style={{marginLeft:"auto"}} onClick={salvarLead}>Salvar</button>
+              <button className="btn btn-sm" style={{color:"var(--red)",borderColor:"#e0b0b0"}} onClick={excluirLead}>Excluir</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── BOARD ──
+    function novoLead() {
+      const lead = {
+        id: crypto.randomUUID(),
+        coluna: "em_contato",
+        nome:"", telefone:"", email:"", valorContrato:"", periodoContrato:"3",
+        tipoReceita:"cliente", tipo:"trafego",
+        anoInicio: ano, mesInicio: 0,
+        razaoSocial:"", cnpj:"", enderecoEmpresa:"",
+        nomeResponsavel:"", cpfResponsavel:"", estadoCivil:"", profissao:"", enderecoResponsavel:"",
+        comentarios: [],
+        criadoEm: new Date().toISOString(),
+      };
+      updateKanban(d => { d.leads.push(lead); return d; });
+      setKanbanEditForm(lead);
+      setKanbanModalId(lead.id);
+    }
+
+    return (
+      <>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
+          <div>
+            <div className="pg-title">Pipeline de Prospecção</div>
+            <div style={{fontSize:13,color:"var(--muted)"}}>
+              {leads.length} lead{leads.length!==1?"s":""} no pipeline
+            </div>
+          </div>
+          <button className="btn btn-p btn-sm" onClick={novoLead}>+ Novo Lead</button>
+        </div>
+
+        <div className="kanban-board">
+          {KANBAN_COLS.map(col => {
+            const colLeads = leads.filter(l => l.coluna === col.id);
+            return (
+              <div key={col.id} className="kanban-col">
+                <div className="kanban-col-hdr">
+                  <span className="kanban-col-title" style={{color:col.cor}}>{col.label}</span>
+                  <span className="kanban-col-count">{colLeads.length}</span>
+                </div>
+                <div className="kanban-col-body">
+                  {colLeads.map(lead => (
+                    <div key={lead.id} className="kanban-card" onClick={()=>{setKanbanEditForm(null);setKanbanModalId(lead.id);}}>
+                      <div className="kanban-card-name" title={lead.nome||"—"}>{lead.nome||"Sem nome"}</div>
+                      {lead.valorContrato && (
+                        <div className="kanban-card-val">{fmt(parseFloat(lead.valorContrato)||0)}/mês</div>
+                      )}
+                      <div className="kanban-card-meta">
+                        {lead.telefone||lead.email||""}
+                      </div>
+                      {(lead.comentarios||[]).length > 0 && (
+                        <div style={{fontSize:10,color:"var(--muted)",marginTop:4}}>
+                          {lead.comentarios.length} registro{lead.comentarios.length!==1?"s":""}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {colLeads.length === 0 && (
+                    <div style={{fontSize:11,color:"var(--muted2)",fontStyle:"italic",textAlign:"center",padding:"12px 0"}}>Vazio</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </>
     );
   }
 
