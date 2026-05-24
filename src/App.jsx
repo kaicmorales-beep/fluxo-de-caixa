@@ -376,6 +376,11 @@ const S = `
   .contract-warning{background:#fff8f0;border:1px solid #f0c060;border-radius:8px;padding:10px 13px;font-size:12px;color:#8a5c00}
   .contract-warning ul{margin:6px 0 0 16px;line-height:1.8}
   .col-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:12px;background:var(--surface);color:var(--muted);border:1px solid var(--border)}
+  .kanban-card.dragging{opacity:.4;cursor:grabbing}
+  .kanban-card{cursor:grab}
+  .kanban-col.drag-over{background:#eaf4ea;border-color:#2d6a2d;box-shadow:0 0 0 2px #2d6a2d44}
+  .kanban-col.drag-over .kanban-col-body{background:#eaf4ea}
+  .kanban-col.drag-blocked{background:#fdf0f0;border-color:var(--red);box-shadow:0 0 0 2px #b0303044}
 `;
 
 // ── LOGIN PAGE ────────────────────────────────────────────────
@@ -427,6 +432,8 @@ export default function App() {
   const [kanbanModalId, setKanbanModalId] = useState(null);
   const [kanbanEditForm, setKanbanEditForm] = useState(null);
   const [kanbanCommentText, setKanbanCommentText] = useState("");
+  const [draggingLeadId, setDraggingLeadId] = useState(null);
+  const [dragOverColId, setDragOverColId] = useState(null);
 
   // Auth listener
   useEffect(() => {
@@ -1273,32 +1280,47 @@ export default function App() {
 
     const periodoN = parseInt(lead.periodoContrato) || 3;
     const valor = parseFloat(lead.valorContrato) || 0;
-    const totalContrato = valor * (periodoN || 1);
+    const totalContrato = valor * periodoN;
 
     function fmtBRL(v) {
       return v.toLocaleString("pt-BR", {minimumFractionDigits:2,maximumFractionDigits:2});
     }
-    function addMeses(ano, mesNum0, n) {
-      const total = (ano * 12 + mesNum0) + n;
+    function addMeses(baseAno, baseMes0, n) {
+      // baseMes0 = 0-indexed month (0=Jan)
+      const total = (baseAno * 12 + baseMes0) + n;
       return { ano: Math.floor(total/12), mes: (total%12)+1 };
     }
 
-    const endD = addMeses(hoje.getFullYear(), hoje.getMonth(), periodoN);
-    const dataFim = `20/${String(endD.mes).padStart(2,"0")}/${endD.ano}`;
+    // Primeira data de pagamento: usa o campo do lead se preenchido, senão hoje+1 mês
+    let primeiroPagAno, primeiroPagMes0; // mes0 = 0-indexed
+    if (lead.primeiroPagamento) {
+      const [pAno, pMes] = lead.primeiroPagamento.split("-").map(Number);
+      primeiroPagAno = pAno;
+      primeiroPagMes0 = pMes - 1;
+    } else {
+      primeiroPagAno = hoje.getFullYear();
+      primeiroPagMes0 = hoje.getMonth() + 1; // +1 = próximo mês (0-indexed)
+    }
 
-    const parcelasHtml = periodoN > 0
-      ? Array.from({length: periodoN}, (_,i) => {
-          const d = addMeses(hoje.getFullYear(), hoje.getMonth(), i+1);
-          const ord = ["1ª","2ª","3ª","4ª","5ª","6ª","7ª","8ª","9ª","10ª","11ª","12ª"][i] || `${i+1}ª`;
-          return `<p>${ord} Parcela: R$ ${fmtBRL(valor)} com vencimento em 20/${String(d.mes).padStart(2,"0")}/${d.ano}.</p>`;
-        }).join("")
-      : `<p>Pagamento único de R$ ${fmtBRL(totalContrato)} a combinar entre as partes.</p>`;
+    // Dia de cada parcela: mesmo dia da 1ª data de pagamento
+    const diaParcela = lead.primeiroPagamento
+      ? lead.primeiroPagamento.split("-")[2]
+      : "20";
 
-    const honorariosTexto = periodoN > 1
-      ? `o valor total de R$ ${fmtBRL(totalContrato)}, dividido em ${periodoN} (${
-          ["uma","duas","três","quatro","cinco","seis","sete","oito","nove","dez","onze","doze"][periodoN-1]||periodoN
-        }) parcelas de R$ ${fmtBRL(valor)}.`
-      : `o valor de R$ ${fmtBRL(totalContrato)}, pago em parcela única.`;
+    // Data fim = último mês de parcela
+    const lastParcelaD = addMeses(primeiroPagAno, primeiroPagMes0, periodoN - 1);
+    const dataFim = `${diaParcela}/${String(lastParcelaD.mes).padStart(2,"0")}/${lastParcelaD.ano}`;
+
+    const parcelasHtml = Array.from({length: periodoN}, (_,i) => {
+      const d = addMeses(primeiroPagAno, primeiroPagMes0, i);
+      const ord = ["1ª","2ª","3ª","4ª","5ª","6ª","7ª","8ª","9ª","10ª","11ª","12ª"][i] || `${i+1}ª`;
+      return `<p>${ord} Parcela: R$ ${fmtBRL(valor)} com vencimento em ${diaParcela}/${String(d.mes).padStart(2,"0")}/${d.ano}.</p>`;
+    }).join("");
+
+    const duracaoTexto = periodoN === 12 ? "1 (um) ano" : `${periodoN} (${["","um","dois","três","quatro","cinco","seis","sete","oito","nove","dez","onze","doze"][periodoN]||periodoN}) meses`;
+    const honorariosTexto = `o valor total de R$ ${fmtBRL(totalContrato)}, dividido em ${periodoN} (${
+      ["","uma","duas","três","quatro","cinco","seis","sete","oito","nove","dez","onze","doze"][periodoN]||periodoN
+    }) parcelas mensais de R$ ${fmtBRL(valor)}, pelo período de ${duracaoTexto}.`;
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -1503,12 +1525,34 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
         setKanbanEditForm(null);
       }
 
+      function maskCPF(v) {
+        return v.replace(/\D/g,"").slice(0,11)
+          .replace(/(\d{3})(\d)/,"$1.$2")
+          .replace(/(\d{3})(\d)/,"$1.$2")
+          .replace(/(\d{3})(\d{1,2})$/,"$1-$2");
+      }
+      function maskCNPJ(v) {
+        return v.replace(/\D/g,"").slice(0,14)
+          .replace(/(\d{2})(\d)/,"$1.$2")
+          .replace(/(\d{3})(\d)/,"$1.$2")
+          .replace(/(\d{3})(\d)/,"$1/$2")
+          .replace(/(\d{4})(\d{1,2})$/,"$1-$2");
+      }
+
       const fi = (k, label, type="text", placeholder="") => (
         <div className="fl">
           <label className="flabel">{label}</label>
           <input className="fi" type={type} placeholder={placeholder}
             value={form[k]||""}
             onChange={e=>setKanbanEditForm(p=>({...(p||lead),[k]:e.target.value}))}/>
+        </div>
+      );
+      const fimask = (k, label, maskFn, placeholder="") => (
+        <div className="fl">
+          <label className="flabel">{label}</label>
+          <input className="fi" type="text" placeholder={placeholder}
+            value={form[k]||""}
+            onChange={e=>setKanbanEditForm(p=>({...(p||lead),[k]:maskFn(e.target.value)}))}/>
         </div>
       );
       const fsel = (k, label, opts) => (
@@ -1551,10 +1595,12 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
                   {fi("telefone","Telefone","text","(17) 99999-9999")}
                   {fi("email","E-mail","email","joao@email.com")}
                   {fi("valorContrato","Valor mensal (R$)","number","1600")}
-                  {fsel("periodoContrato","Período (parcelas)",[
-                    {v:"0",l:"Fixo (sem fim)"},
-                    ...[1,2,3,4,5,6,9,12].map(n=>({v:String(n),l:`${n} ${n===1?"mês":"meses"}`}))
+                  {fsel("periodoContrato","Duração do contrato",[
+                    {v:"3", l:"3 meses"},
+                    {v:"6", l:"6 meses"},
+                    {v:"12",l:"1 ano (12 meses)"},
                   ])}
+                  {fi("primeiroPagamento","1ª data de pagamento","date","")}
                   {fsel("tipoReceita","Tipo de receita",[
                     {v:"cliente",l:"Cliente"},
                     {v:"servico",l:"Serviço"},
@@ -1589,14 +1635,14 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
                 </div>
                 <div className="fg">
                   {fi("razaoSocial","Razão social","text","Ex: Empresa LTDA")}
-                  {fi("cnpj","CNPJ","text","00.000.000/0001-00")}
+                  {fimask("cnpj","CNPJ",maskCNPJ,"00.000.000/0001-00")}
                   <div className="fl" style={{gridColumn:"1/-1"}}>
                     <label className="flabel">Endereço da empresa (com CEP)</label>
                     <input className="fi" placeholder="Rua, nº, Bairro, Cidade/UF, CEP" value={form.enderecoEmpresa||""}
                       onChange={e=>setKanbanEditForm(p=>({...(p||lead),enderecoEmpresa:e.target.value}))}/>
                   </div>
                   {fi("nomeResponsavel","Nome do responsável legal","text","Nome completo")}
-                  {fi("cpfResponsavel","CPF do responsável","text","000.000.000-00")}
+                  {fimask("cpfResponsavel","CPF do responsável",maskCPF,"000.000.000-00")}
                   {fi("estadoCivil","Estado civil","text","Solteiro(a)")}
                   {fi("profissao","Profissão","text","Advogado(a)")}
                   <div className="fl" style={{gridColumn:"1/-1"}}>
@@ -1669,7 +1715,7 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
       const lead = {
         id: crypto.randomUUID(),
         coluna: "em_contato",
-        nome:"", telefone:"", email:"", valorContrato:"", periodoContrato:"3",
+        nome:"", telefone:"", email:"", valorContrato:"", periodoContrato:"3", primeiroPagamento:"",
         tipoReceita:"cliente", tipo:"trafego",
         anoInicio: ano, mesInicio: 0,
         razaoSocial:"", cnpj:"", enderecoEmpresa:"",
@@ -1680,6 +1726,67 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
       updateKanban(d => { d.leads.push(lead); return d; });
       setKanbanEditForm(lead);
       setKanbanModalId(lead.id);
+    }
+
+    // ── DRAG & DROP HANDLERS ──
+    const draggingLead = leads.find(l => l.id === draggingLeadId);
+    const dragTargetBlocked = dragOverColId === "contrato_enviado" && draggingLead
+      ? CAMPOS_CONTRATO.some(c => !draggingLead[c.k]?.toString().trim())
+      : false;
+
+    function handleDragStart(e, leadId) {
+      setDraggingLeadId(leadId);
+      e.dataTransfer.effectAllowed = "move";
+    }
+
+    function handleDragEnd() {
+      setDraggingLeadId(null);
+      setDragOverColId(null);
+    }
+
+    function handleDragOver(e, colId) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (dragOverColId !== colId) setDragOverColId(colId);
+    }
+
+    function handleDragLeave(e) {
+      if (!e.currentTarget.contains(e.relatedTarget)) setDragOverColId(null);
+    }
+
+    function handleDrop(e, colId) {
+      e.preventDefault();
+      setDragOverColId(null);
+      if (!draggingLeadId) return;
+      const lead = leads.find(l => l.id === draggingLeadId);
+      if (!lead || lead.coluna === colId) { setDraggingLeadId(null); return; }
+
+      if (colId === "contrato_enviado") {
+        const faltando = CAMPOS_CONTRATO.filter(c => !lead[c.k]?.toString().trim());
+        if (faltando.length > 0) {
+          showToast("Preencha os dados do contrato antes de mover para esta etapa.");
+          setKanbanEditForm(null);
+          setKanbanModalId(lead.id);
+          setDraggingLeadId(null);
+          return;
+        }
+      }
+
+      if (colId === "fechou") {
+        if (!confirm(`Mover "${lead.nome}" para Fechou e adicionar como cliente ativo?`)) {
+          setDraggingLeadId(null);
+          return;
+        }
+        converterParaCliente({ ...lead, coluna: "fechou" });
+        showToast(`${lead.nome} adicionado como cliente ativo!`);
+      }
+
+      updateKanban(d => {
+        const idx = d.leads.findIndex(l => l.id === draggingLeadId);
+        if (idx >= 0) d.leads[idx] = { ...d.leads[idx], coluna: colId };
+        return d;
+      });
+      setDraggingLeadId(null);
     }
 
     return (
@@ -1697,15 +1804,28 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
         <div className="kanban-board">
           {KANBAN_COLS.map(col => {
             const colLeads = leads.filter(l => l.coluna === col.id);
+            const isOver = dragOverColId === col.id;
+            const isBlocked = isOver && dragTargetBlocked;
             return (
-              <div key={col.id} className="kanban-col">
+              <div key={col.id}
+                className={`kanban-col${isBlocked?" drag-blocked":isOver?" drag-over":""}`}
+                onDragOver={e=>handleDragOver(e, col.id)}
+                onDragLeave={handleDragLeave}
+                onDrop={e=>handleDrop(e, col.id)}
+              >
                 <div className="kanban-col-hdr">
                   <span className="kanban-col-title" style={{color:col.cor}}>{col.label}</span>
                   <span className="kanban-col-count">{colLeads.length}</span>
                 </div>
                 <div className="kanban-col-body">
                   {colLeads.map(lead => (
-                    <div key={lead.id} className="kanban-card" onClick={()=>{setKanbanEditForm(null);setKanbanModalId(lead.id);}}>
+                    <div key={lead.id}
+                      className={`kanban-card${draggingLeadId===lead.id?" dragging":""}`}
+                      draggable
+                      onDragStart={e=>handleDragStart(e, lead.id)}
+                      onDragEnd={handleDragEnd}
+                      onClick={()=>{if(!draggingLeadId){setKanbanEditForm(null);setKanbanModalId(lead.id);}}}
+                    >
                       <div className="kanban-card-name" title={lead.nome||"—"}>{lead.nome||"Sem nome"}</div>
                       {lead.valorContrato && (
                         <div className="kanban-card-val">{fmt(parseFloat(lead.valorContrato)||0)}/mês</div>
