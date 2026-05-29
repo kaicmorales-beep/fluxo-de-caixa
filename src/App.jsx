@@ -115,6 +115,66 @@ function calcFlow(d, ano, caixaOverride = null, prevD = null) {
   });
 }
 
+// ── PAINEL DE CLIENTES (CRM) ─────────────────────────────────
+// Semáforo financeiro (manual nesta fase; Asaas fica para fase 2)
+const FIN_OPTS = [
+  { v:"em_dia",       dot:"🟢", lbl:"Em dia",        cor:"#1a6e1a", bg:"#eaf4ea" },
+  { v:"vence_breve",  dot:"🟡", lbl:"Vence em breve", cor:"#8a5c00", bg:"#fdf6e8" },
+  { v:"inadimplente", dot:"🔴", lbl:"Inadimplente",   cor:"#b03030", bg:"#fdf0f0" },
+  { v:"manual",       dot:"⚪", lbl:"Controle manual", cor:"#888780", bg:"#f0efeb" },
+];
+const SAUDE_OPTS = [
+  { v:"saudavel", dot:"🟢", lbl:"Saudável", cor:"#1a6e1a", bg:"#eaf4ea" },
+  { v:"atencao",  dot:"🟡", lbl:"Atenção",  cor:"#8a5c00", bg:"#fdf6e8" },
+  { v:"risco",    dot:"🔴", lbl:"Risco",    cor:"#b03030", bg:"#fdf0f0" },
+];
+const TEMP_OPTS = [
+  { v:"muito_satisfeito", emoji:"🔥", lbl:"Muito satisfeito" },
+  { v:"satisfeito",       emoji:"😊", lbl:"Satisfeito" },
+  { v:"neutro",           emoji:"😐", lbl:"Neutro" },
+  { v:"insatisfeito",     emoji:"😕", lbl:"Insatisfeito" },
+  { v:"risco_cancel",     emoji:"🚨", lbl:"Risco de cancelamento" },
+];
+const findOpt = (arr, v) => arr.find(o => o.v === v) || null;
+
+// Limiares dos alertas automáticos
+const ALERTA_VENCE_DIAS    = 5;   // pagamento vence em X dias
+const ALERTA_RENOVA_DIAS   = 30;  // contrato renova em X dias
+const ALERTA_SEM_REUNIAO   = 30;  // sem reunião há X dias
+const ALERTA_SEM_ATUALIZ   = 14;  // sem atualização há X dias
+
+function diasEntre(dataISO, hoje) {
+  if (!dataISO) return null;
+  const d = new Date(dataISO + "T00:00:00");
+  if (isNaN(d)) return null;
+  return Math.round((d - hoje) / 86400000); // >0 futuro, <0 passado
+}
+
+// Gera os alertas automáticos a partir da receita + dados de CRM
+function computeAutoAlerts(crm, hoje) {
+  const out = [];
+  const fin = crm.statusFinanceiro;
+  if (fin === "inadimplente") out.push({ level:"danger", text:"Pagamento vencido" });
+  const dVenc = diasEntre(crm.proximoVencimento, hoje);
+  if (dVenc !== null) {
+    if (dVenc < 0 && fin !== "inadimplente") out.push({ level:"danger", text:`Vencimento atrasado há ${Math.abs(dVenc)}d` });
+    else if (dVenc >= 0 && dVenc <= ALERTA_VENCE_DIAS) out.push({ level:"warn", text:`Vence em ${dVenc}d` });
+  }
+  const dRenova = diasEntre(crm.dataRenovacao, hoje);
+  if (dRenova !== null && dRenova >= 0 && dRenova <= ALERTA_RENOVA_DIAS) out.push({ level:"warn", text:`Contrato renova em ${dRenova}d` });
+  const dReuniao = diasEntre(crm.ultimaReuniao, hoje);
+  if (dReuniao !== null && -dReuniao >= ALERTA_SEM_REUNIAO) out.push({ level:"warn", text:`Sem reunião há ${-dReuniao}d` });
+  const ultHist = (crm.historico && crm.historico.length) ? crm.historico[0].data : null;
+  const dHist = diasEntre(ultHist, hoje);
+  if (dHist !== null && -dHist >= ALERTA_SEM_ATUALIZ) out.push({ level:"info", text:`Sem atualização há ${-dHist}d` });
+  // Alertas manuais
+  if (crm.saude === "risco") out.push({ level:"danger", text:"Conta marcada como risco" });
+  if (crm.temperatura === "risco_cancel") out.push({ level:"danger", text:"Risco de cancelamento" });
+  if (crm.temperatura === "insatisfeito") out.push({ level:"warn", text:"Cliente insatisfeito" });
+  (crm.alertasManuais || []).forEach(t => t && out.push({ level:"warn", text:t }));
+  return out;
+}
+
 // ── SUPABASE DATA LAYER ──────────────────────────────────────
 async function loadFromDB(userId, ano) {
   const { data, error } = await supabase
@@ -132,6 +192,8 @@ async function loadFromDB(userId, ano) {
       while (d[k].length < n) d[k].push(0);
     });
     if (!d.clientes) d.clientes = [];
+    // Garante um id estável por receita (usado para pendurar dados de CRM no painel)
+    d.clientes.forEach(c => { if (!c.id) c.id = "cli_" + Math.random().toString(36).slice(2) + Date.now().toString(36); });
     if (!d.categorias) d.categorias = DEF_CATS();
     d.categorias.forEach(c => { if (!c.contas) c.contas = []; });
     return d;
@@ -156,12 +218,13 @@ async function loadKanbanFromDB(userId) {
     .eq("user_id", userId)
     .eq("ano", 0)
     .single();
-  if (error || !data) return { leads: [] };
+  if (error || !data) return { leads: [], crm: {} };
   try {
     const d = data.dados;
     if (!Array.isArray(d.leads)) d.leads = [];
+    if (!d.crm || typeof d.crm !== "object") d.crm = {};
     return d;
-  } catch { return { leads: [] }; }
+  } catch { return { leads: [], crm: {} }; }
 }
 
 // ── STYLES ───────────────────────────────────────────────────
@@ -381,6 +444,64 @@ const S = `
   .kanban-col.drag-over{background:#eaf4ea;border-color:#2d6a2d;box-shadow:0 0 0 2px #2d6a2d44}
   .kanban-col.drag-over .kanban-col-body{background:#eaf4ea}
   .kanban-col.drag-blocked{background:#fdf0f0;border-color:var(--red);box-shadow:0 0 0 2px #b0303044}
+
+  /* PAINEL DE CLIENTES */
+  .pn-filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+  .pn-fbtn{padding:6px 12px;font-size:12px;font-weight:500;border-radius:20px;border:1px solid var(--border2);background:var(--white);color:var(--muted);cursor:pointer;transition:all .12s}
+  .pn-fbtn:hover{border-color:var(--green);color:var(--green)}
+  .pn-fbtn.on{background:var(--green);border-color:var(--green);color:#fff}
+  .pn-row{cursor:pointer}
+  .pn-row:hover td{background:#f4f8f4}
+  .pn-cli{padding:11px;text-align:left}
+  .pn-cli-nome{font-weight:600;font-size:13px}
+  .pn-cli-sub{font-size:11px;color:var(--muted);margin-top:1px}
+  .pn-sem{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:4px 9px;border-radius:20px;white-space:nowrap}
+  .pn-td{padding:9px 10px;text-align:center;vertical-align:middle}
+  .pn-td-l{padding:9px 10px;text-align:left;vertical-align:middle;font-size:12px}
+  .pn-alerts{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+  .pn-chip{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:6px;white-space:nowrap;line-height:1.5}
+  .pn-chip.danger{background:var(--red-bg);color:var(--red)}
+  .pn-chip.warn{background:var(--warn-bg);color:var(--warn)}
+  .pn-chip.info{background:#eef4fb;color:#1a4a7a}
+  .pn-temp{font-size:17px;line-height:1}
+  .pn-empty{color:var(--muted);font-size:13px;padding:24px 0;text-align:center}
+
+  /* DRAWER */
+  .dw-ov{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;display:flex;justify-content:flex-end}
+  .dw{background:var(--bg);width:100%;max-width:540px;height:100%;display:flex;flex-direction:column;box-shadow:-12px 0 40px rgba(0,0,0,.22);animation:dwin .18s ease}
+  @keyframes dwin{from{transform:translateX(40px);opacity:.4}to{transform:translateX(0);opacity:1}}
+  .dw-hdr{background:var(--white);padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-shrink:0}
+  .dw-title{font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .dw-sub{font-size:12px;color:var(--muted);margin-top:2px}
+  .dw-x{border:none;background:transparent;font-size:22px;line-height:1;color:var(--muted);cursor:pointer;padding:0 4px}
+  .dw-x:hover{color:var(--text)}
+  .dw-body{overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px;flex:1}
+  .dw-sec{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+  .dw-sec-t{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+  .dw-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .dw-f{display:flex;flex-direction:column;gap:3px}
+  .dw-f.full{grid-column:1/-1}
+  .dw-lbl{font-size:11px;color:var(--muted);font-weight:500}
+  .dw-in{border:1px solid var(--border2);border-radius:7px;padding:7px 9px;font-size:13px;background:var(--white);color:var(--text);width:100%;outline:none}
+  .dw-in:focus{border-color:var(--green)}
+  textarea.dw-in{resize:vertical;min-height:54px;font-family:var(--sans)}
+  .dw-read{font-size:13px;font-weight:500}
+  .dw-temp-row{display:flex;gap:6px;flex-wrap:wrap}
+  .dw-temp-b{font-size:20px;padding:4px 7px;border-radius:8px;border:1.5px solid transparent;background:var(--surface);cursor:pointer;line-height:1;transition:all .12s}
+  .dw-temp-b:hover{border-color:var(--border2)}
+  .dw-temp-b.on{border-color:var(--green);background:var(--green-bg);transform:scale(1.08)}
+  .dw-seg{display:flex;gap:4px;flex-wrap:wrap}
+  .dw-seg-b{font-size:12px;font-weight:500;padding:6px 10px;border-radius:7px;border:1px solid var(--border2);background:var(--white);cursor:pointer;color:var(--muted);transition:all .12s}
+  .dw-seg-b.on{color:#fff;border-color:transparent}
+  .dw-link{display:flex;align-items:center;gap:8px;font-size:13px;color:#1a5fa0;text-decoration:none;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--white);word-break:break-all}
+  .dw-link:hover{background:#f4f8fb;border-color:#b0ccee}
+  .dw-hist{display:flex;flex-direction:column;gap:7px;max-height:220px;overflow-y:auto}
+  .dw-hist-item{display:flex;gap:9px;font-size:13px;align-items:baseline}
+  .dw-hist-date{font-family:var(--mono);font-size:11px;color:var(--muted);flex-shrink:0;min-width:42px}
+  .dw-hist-x{margin-left:auto;border:none;background:transparent;color:var(--muted2);cursor:pointer;font-size:14px}
+  .dw-hist-x:hover{color:var(--red)}
+  .dw-add{display:flex;gap:6px}
+  .dw-chip-add{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 `;
 
 // ── LOGIN PAGE ────────────────────────────────────────────────
@@ -434,6 +555,9 @@ export default function App() {
   const [kanbanCommentText, setKanbanCommentText] = useState("");
   const [draggingLeadId, setDraggingLeadId] = useState(null);
   const [dragOverColId, setDragOverColId] = useState(null);
+  const [painelDrawerId, setPainelDrawerId] = useState(null); // id da receita aberta no drawer
+  const [painelHistText, setPainelHistText] = useState("");
+  const [painelFiltro, setPainelFiltro] = useState("todos"); // todos | alertas | risco | inadimplente
 
   // Auth listener
   useEffect(() => {
@@ -489,10 +613,10 @@ export default function App() {
     setTimeout(() => setToast(""), 2800);
   }
 
-  const saveKanbanData = useCallback(async (leads) => {
+  const saveKanbanData = useCallback(async (kdata) => {
     if (!session) return;
     try {
-      await saveToDB(session.user.id, 0, { leads });
+      await saveToDB(session.user.id, 0, { leads: kdata.leads || [], crm: kdata.crm || {} });
     } catch (err) {
       console.error("[fluxo-caixa] Erro ao salvar kanban:", err?.message || err);
     }
@@ -500,9 +624,22 @@ export default function App() {
 
   function updateKanban(updater) {
     setDataKanban(prev => {
-      const next = updater(JSON.parse(JSON.stringify(prev || { leads: [] })));
-      saveKanbanData(next.leads);
+      const next = updater(JSON.parse(JSON.stringify(prev || { leads: [], crm: {} })));
+      saveKanbanData(next);
       return next;
+    });
+  }
+
+  // Dados de CRM por receita (id) — armazenados no balde ano=0, compartilhado entre anos
+  function getCrm(id) {
+    const base = { historico: [], alertasManuais: [], links: {} };
+    return { ...base, ...((dataKanban && dataKanban.crm && dataKanban.crm[id]) || {}) };
+  }
+  function updateCrm(id, patch) {
+    updateKanban(d => {
+      if (!d.crm) d.crm = {};
+      d.crm[id] = { ...{ historico: [], alertasManuais: [], links: {} }, ...(d.crm[id] || {}), ...patch };
+      return d;
     });
   }
 
@@ -528,6 +665,7 @@ export default function App() {
     {id:"add-conta", label:"+ Conta"},
     {id:"clientes",  label:"+ Receita"},
     {id:"ativos",    label:"Receitas"},
+    {id:"painel",    label:"Painel"},
     {id:"cenarios",  label:"Cenários"},
     {id:"reserva",   label:"Reserva"},
     {id:"kanban",    label:"Kanban"},
@@ -933,6 +1071,357 @@ export default function App() {
     );
   }
 
+  // ── PAINEL DE CLIENTES ─────────────────────────────────────
+  function fmtData(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso + "T00:00:00");
+    if (isNaN(d)) return "—";
+    return String(d.getDate()).padStart(2,"0") + "/" + String(d.getMonth()+1).padStart(2,"0");
+  }
+
+  function renderPainel() {
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    // Espelha a aba Receitas: cada receita do ano vira uma linha
+    const linhas = (D.clientes || []).map(c => {
+      const crm = getCrm(c.id);
+      const alerts = computeAutoAlerts(crm, hoje);
+      return { c, crm, alerts };
+    });
+
+    const nInad = linhas.filter(l => l.crm.statusFinanceiro === "inadimplente").length;
+    const nRisco = linhas.filter(l => l.crm.saude === "risco" || l.crm.temperatura === "risco_cancel").length;
+    const nAlerta = linhas.filter(l => l.alerts.length > 0).length;
+
+    const filtrada = linhas.filter(l => {
+      if (painelFiltro === "alertas") return l.alerts.length > 0;
+      if (painelFiltro === "risco") return l.crm.saude === "risco" || l.crm.temperatura === "risco_cancel";
+      if (painelFiltro === "inadimplente") return l.crm.statusFinanceiro === "inadimplente";
+      return true;
+    });
+
+    const filtros = [
+      { v:"todos",        l:`Todos (${linhas.length})` },
+      { v:"alertas",      l:`Com alertas (${nAlerta})` },
+      { v:"inadimplente", l:`Inadimplentes (${nInad})` },
+      { v:"risco",        l:`Em risco (${nRisco})` },
+    ];
+
+    return (
+      <>
+        <div className="pg-title" style={{marginBottom:2}}>Painel de Clientes</div>
+        <div className="pg-sub">Visão geral de {ano} — saúde, financeiro e o que precisa de atenção. Clique numa linha para ver tudo.</div>
+
+        <div className="cards-row">
+          <div className="card"><div className="stat-lbl">Clientes</div><div className="stat-val">{linhas.length}</div></div>
+          <div className="card"><div className="stat-lbl">Inadimplentes</div><div className="stat-val" style={{color:nInad?"var(--red)":"var(--text)"}}>{nInad}</div></div>
+          <div className="card"><div className="stat-lbl">Em risco</div><div className="stat-val" style={{color:nRisco?"var(--red)":"var(--text)"}}>{nRisco}</div></div>
+          <div className="card"><div className="stat-lbl">Com alertas</div><div className="stat-val" style={{color:nAlerta?"var(--warn)":"var(--text)"}}>{nAlerta}</div></div>
+        </div>
+
+        <div className="pn-filters">
+          {filtros.map(f => (
+            <button key={f.v} className={`pn-fbtn${painelFiltro===f.v?" on":""}`} onClick={()=>setPainelFiltro(f.v)}>{f.l}</button>
+          ))}
+        </div>
+
+        {linhas.length === 0 ? (
+          <div className="pn-empty">Nenhuma receita cadastrada em {ano}. Adicione em <strong>+ Receita</strong>.</div>
+        ) : filtrada.length === 0 ? (
+          <div className="pn-empty">Nenhum cliente neste filtro. 🎉</div>
+        ) : (
+          <div className="tbl-wrap">
+            <table>
+              <thead><tr>
+                <th style={{textAlign:"left"}}>Cliente</th>
+                <th style={{textAlign:"center"}}>Saúde</th>
+                <th style={{textAlign:"center"}}>Financeiro</th>
+                <th>Valor mensal</th>
+                <th style={{textAlign:"center"}}>Últ. reunião</th>
+                <th style={{textAlign:"center"}}>Próx. reunião</th>
+                <th style={{textAlign:"center"}}>Temp.</th>
+                <th style={{textAlign:"left"}}>Responsável</th>
+                <th style={{textAlign:"left"}}>Alertas</th>
+              </tr></thead>
+              <tbody>
+                {filtrada.map(({c, crm, alerts}) => {
+                  const fin = findOpt(FIN_OPTS, crm.statusFinanceiro);
+                  const sau = findOpt(SAUDE_OPTS, crm.saude);
+                  const temp = findOpt(TEMP_OPTS, crm.temperatura);
+                  return (
+                    <tr key={c.id} className="pn-row" onClick={()=>{setPainelDrawerId(c.id);setPainelHistText("");}}>
+                      <td className="pn-cli">
+                        <div className="pn-cli-nome">{c.nome}</div>
+                        <div className="pn-cli-sub">{crm.empresa || TIPOS[c.tipo] || GRUPOS.find(g=>g.key===(c.tipoReceita||"cliente"))?.label || "—"}</div>
+                      </td>
+                      <td className="pn-td">{sau ? <span className="pn-sem" style={{background:sau.bg,color:sau.cor}}>{sau.dot} {sau.lbl}</span> : <span className="dim">—</span>}</td>
+                      <td className="pn-td">{fin ? <span className="pn-sem" style={{background:fin.bg,color:fin.cor}}>{fin.dot} {fin.lbl}</span> : <span className="dim">—</span>}</td>
+                      <td className="td-n">{fmt(parseFloat(c.valor)||0)}</td>
+                      <td className="pn-td">{fmtData(crm.ultimaReuniao)}</td>
+                      <td className="pn-td">{fmtData(crm.proximaReuniao)}</td>
+                      <td className="pn-td"><span className="pn-temp" title={temp?.lbl}>{temp ? temp.emoji : "—"}</span></td>
+                      <td className="pn-td-l">{crm.responsavel || <span className="dim">—</span>}</td>
+                      <td className="pn-td-l">
+                        {alerts.length === 0 ? <span className="dim">—</span> : (
+                          <div className="pn-alerts">
+                            {alerts.slice(0,3).map((a,i)=><span key={i} className={`pn-chip ${a.level}`}>{a.text}</span>)}
+                            {alerts.length>3 && <span className="pn-chip info">+{alerts.length-3}</span>}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  function renderPainelDrawer() {
+    if (!painelDrawerId) return null;
+    const c = (D.clientes || []).find(x => x.id === painelDrawerId);
+    if (!c) return null; // receita não existe neste ano
+    const crm = getCrm(c.id);
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    const alerts = computeAutoAlerts(crm, hoje);
+    const set = (patch) => updateCrm(c.id, patch);
+    const links = crm.links || {};
+    const setLink = (k,v) => set({ links: { ...links, [k]: v } });
+    const grupo = GRUPOS.find(g => g.key === (c.tipoReceita || "cliente"));
+
+    let tempo = null;
+    if (crm.dataEntrada) {
+      const de = new Date(crm.dataEntrada + "T00:00:00");
+      if (!isNaN(de)) {
+        const m = Math.max(0, Math.floor((hoje - de) / 2629800000));
+        tempo = m < 1 ? "menos de 1 mês" : m < 12 ? `${m} ${m===1?"mês":"meses"}` : `${Math.floor(m/12)}a ${m%12}m`;
+      }
+    }
+    const close = () => { setPainelDrawerId(null); setPainelHistText(""); };
+
+    const F = (lbl, key, type="text", ph="") => (
+      <div className="dw-f">
+        <label className="dw-lbl">{lbl}</label>
+        <input className="dw-in" type={type} placeholder={ph} value={crm[key] || ""} onChange={e=>set({[key]: e.target.value})}/>
+      </div>
+    );
+    const FL = (lbl, key, ph="") => (
+      <div className="dw-f full">
+        <label className="dw-lbl">{lbl}</label>
+        <input className="dw-in" placeholder={ph} value={links[key] || ""} onChange={e=>setLink(key, e.target.value)}/>
+      </div>
+    );
+
+    const ferramentas = (links.ferramentas || "").split("\n").map(s=>s.trim()).filter(Boolean);
+    const quickLinks = [
+      { k:"drive",    lbl:"📁 Pasta do Drive", url:links.drive },
+      { k:"contrato", lbl:"📄 Contrato",        url:links.contrato },
+      { k:"dashboard",lbl:"📊 Dashboard",       url:links.dashboard },
+      { k:"grupo",    lbl:"💬 Grupo WhatsApp",  url:links.grupo },
+    ].filter(l => l.url);
+
+    return (
+      <div className="dw-ov" onClick={e=>{ if(e.target===e.currentTarget) close(); }}>
+        <div className="dw">
+          <div className="dw-hdr">
+            <div>
+              <div className="dw-title">{c.nome}</div>
+              <div className="dw-sub">
+                {grupo?.label || "Cliente"} · {fmt(parseFloat(c.valor)||0)}/mês
+                {tempo && <> · cliente há {tempo}</>}
+              </div>
+            </div>
+            <button className="dw-x" onClick={close} title="Fechar">×</button>
+          </div>
+
+          <div className="dw-body">
+            {/* Alertas automáticos */}
+            {alerts.length > 0 && (
+              <div className="dw-sec" style={{gap:7}}>
+                <div className="dw-sec-t">Alertas</div>
+                <div className="pn-alerts" style={{flexDirection:"row",flexWrap:"wrap",gap:6}}>
+                  {alerts.map((a,i)=><span key={i} className={`pn-chip ${a.level}`}>{a.text}</span>)}
+                </div>
+              </div>
+            )}
+
+            {/* Dados gerais */}
+            <div className="dw-sec">
+              <div className="dw-sec-t">Dados gerais</div>
+              <div className="dw-grid">
+                {F("Empresa","empresa")}
+                {F("Segmento","segmento")}
+                {F("Responsável","responsavel")}
+                {F("Data de entrada","dataEntrada","date")}
+                {F("E-mail","email","email")}
+                {F("WhatsApp","whatsapp")}
+              </div>
+            </div>
+
+            {/* Financeiro (manual) */}
+            <div className="dw-sec">
+              <div className="dw-sec-t">Financeiro</div>
+              <div className="dw-f full">
+                <label className="dw-lbl">Status financeiro</label>
+                <div className="dw-seg">
+                  {FIN_OPTS.map(o=>(
+                    <button key={o.v} className={`dw-seg-b${crm.statusFinanceiro===o.v?" on":""}`}
+                      style={crm.statusFinanceiro===o.v?{background:o.cor}:{}}
+                      onClick={()=>set({statusFinanceiro: crm.statusFinanceiro===o.v?"":o.v})}>{o.dot} {o.lbl}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="dw-grid">
+                {F("Forma de pagamento","formaPagamento","text","Pix, Boleto, Cartão...")}
+                {F("Dia de vencimento","diaVencimento","number","Ex: 5")}
+                {F("Próximo vencimento","proximoVencimento","date")}
+                {F("Último pagamento","ultimoPagamento","date")}
+              </div>
+              <div style={{fontSize:11,color:"var(--muted)"}}>
+                Valor mensal vem da receita ({fmt(parseFloat(c.valor)||0)}). Edite em <a style={{color:"#1a5fa0",cursor:"pointer"}} onClick={()=>{close();setActiveTab("ativos");}}>Receitas</a>. Integração Asaas: fase 2.
+              </div>
+            </div>
+
+            {/* Relacionamento */}
+            <div className="dw-sec">
+              <div className="dw-sec-t">Relacionamento</div>
+              <div className="dw-grid">
+                {F("Última reunião","ultimaReuniao","date")}
+                {F("Próxima reunião","proximaReuniao","date")}
+                {F("Último contato","ultimoContato","date")}
+              </div>
+              <div className="dw-f full">
+                <label className="dw-lbl">Temperatura da conta</label>
+                <div className="dw-temp-row">
+                  {TEMP_OPTS.map(o=>(
+                    <button key={o.v} className={`dw-temp-b${crm.temperatura===o.v?" on":""}`} title={o.lbl}
+                      onClick={()=>set({temperatura: crm.temperatura===o.v?"":o.v})}>{o.emoji}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Operação */}
+            <div className="dw-sec">
+              <div className="dw-sec-t">Operação</div>
+              <div className="dw-f full">
+                <label className="dw-lbl">Saúde da conta</label>
+                <div className="dw-seg">
+                  {SAUDE_OPTS.map(o=>(
+                    <button key={o.v} className={`dw-seg-b${crm.saude===o.v?" on":""}`}
+                      style={crm.saude===o.v?{background:o.cor}:{}}
+                      onClick={()=>set({saude: crm.saude===o.v?"":o.v})}>{o.dot} {o.lbl}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="dw-grid">
+                <div className="dw-f">
+                  <label className="dw-lbl">Contrato assinado</label>
+                  <div className="dw-seg">
+                    <button className={`dw-seg-b${crm.contratoAssinado==="sim"?" on":""}`} style={crm.contratoAssinado==="sim"?{background:"#1a6e1a"}:{}} onClick={()=>set({contratoAssinado:"sim"})}>Sim</button>
+                    <button className={`dw-seg-b${crm.contratoAssinado==="nao"?" on":""}`} style={crm.contratoAssinado==="nao"?{background:"var(--red)"}:{}} onClick={()=>set({contratoAssinado:"nao"})}>Não</button>
+                  </div>
+                </div>
+                {F("Data de renovação","dataRenovacao","date")}
+              </div>
+              <div className="dw-f full">
+                <label className="dw-lbl">Serviços contratados</label>
+                <textarea className="dw-in" placeholder="Ex: Tráfego pago, gestão de redes..." value={crm.servicos||""} onChange={e=>set({servicos:e.target.value})}/>
+              </div>
+              <div className="dw-f full">
+                <label className="dw-lbl">Observações internas</label>
+                <textarea className="dw-in" value={crm.obsInternas||""} onChange={e=>set({obsInternas:e.target.value})}/>
+              </div>
+            </div>
+
+            {/* Links rápidos */}
+            <div className="dw-sec">
+              <div className="dw-sec-t">Links rápidos</div>
+              {quickLinks.length > 0 && (
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {quickLinks.map(l=>(
+                    <a key={l.k} className="dw-link" href={l.url} target="_blank" rel="noreferrer">{l.lbl}</a>
+                  ))}
+                </div>
+              )}
+              <div className="dw-grid">
+                {FL("Pasta do Drive","drive","https://drive.google.com/...")}
+                {FL("Contrato","contrato","https://...")}
+                {FL("Dashboard","dashboard","https://...")}
+                {FL("Grupo WhatsApp","grupo","https://chat.whatsapp.com/...")}
+              </div>
+              <div className="dw-f full">
+                <label className="dw-lbl">Ferramentas relacionadas (uma por linha)</label>
+                <textarea className="dw-in" placeholder="https://..." value={links.ferramentas||""} onChange={e=>setLink("ferramentas",e.target.value)}/>
+                {ferramentas.length>0 && (
+                  <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:6}}>
+                    {ferramentas.map((u,i)=><a key={i} className="dw-link" href={u} target="_blank" rel="noreferrer">🔗 {u}</a>)}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Histórico de atualizações */}
+            <div className="dw-sec">
+              <div className="dw-sec-t">Histórico de atualizações</div>
+              <div className="dw-add">
+                <input className="dw-in" placeholder="Ex: Reunião realizada" value={painelHistText}
+                  onChange={e=>setPainelHistText(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==="Enter") addHist(); }}/>
+                <button className="btn btn-p btn-sm" onClick={addHist}>Add</button>
+              </div>
+              {(crm.historico||[]).length === 0
+                ? <div style={{fontSize:12,color:"var(--muted)",fontStyle:"italic"}}>Nenhum registro ainda.</div>
+                : <div className="dw-hist">
+                    {(crm.historico||[]).map((h,i)=>(
+                      <div className="dw-hist-item" key={i}>
+                        <span className="dw-hist-date">{fmtData(h.data)}</span>
+                        <span>{h.texto}</span>
+                        <button className="dw-hist-x" title="Remover" onClick={()=>{
+                          const nh = (crm.historico||[]).filter((_,j)=>j!==i); set({historico:nh});
+                        }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+              }
+            </div>
+
+            {/* Alertas manuais */}
+            <div className="dw-sec">
+              <div className="dw-sec-t">Alertas manuais</div>
+              <div className="dw-chip-add">
+                {["Problema operacional","Cliente insatisfeito","Pendência interna"].map(t=>(
+                  <button key={t} className="pn-fbtn" onClick={()=>{
+                    const cur = crm.alertasManuais||[];
+                    if (!cur.includes(t)) set({alertasManuais:[...cur,t]});
+                  }}>+ {t}</button>
+                ))}
+              </div>
+              {(crm.alertasManuais||[]).length>0 && (
+                <div className="pn-alerts" style={{flexDirection:"row",flexWrap:"wrap",gap:6}}>
+                  {(crm.alertasManuais||[]).map((t,i)=>(
+                    <span key={i} className="pn-chip warn" style={{cursor:"pointer"}} title="Clique para remover"
+                      onClick={()=>set({alertasManuais:(crm.alertasManuais||[]).filter((_,j)=>j!==i)})}>{t} ✕</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    function addHist() {
+      const txt = painelHistText.trim();
+      if (!txt) return;
+      const hojeISO = new Date().toISOString().slice(0,10);
+      set({ historico: [{ data: hojeISO, texto: txt }, ...(crm.historico||[]) ] });
+      setPainelHistText("");
+    }
+  }
+
   // ── CENÁRIOS ───────────────────────────────────────────────
   function renderCenarios() {
     function sim(extra, from) {
@@ -1008,6 +1497,7 @@ export default function App() {
     if (activeTab === "add-conta") return <AddContaForm />;
     if (activeTab === "clientes") return <AddClienteForm />;
     if (activeTab === "ativos") return renderAtivos();
+    if (activeTab === "painel") return renderPainel();
     if (activeTab === "cenarios") return <><div className="pg-title">Simulação de cenários</div><div className="pg-sub">Impacto de novos clientes no caixa.</div>{renderCenarios()}</>;
     if (activeTab === "reserva") return <><div className="pg-title">Meta de reserva</div><div className="pg-sub">Progresso em direção à reserva de 3 meses.</div>{renderReserva()}</>;
     if (activeTab === "kanban") return renderKanban();
@@ -1153,7 +1643,7 @@ export default function App() {
           <div style={{display:"flex",gap:10}}>
             <button className="btn btn-p" onClick={()=>{
               if(!form.nome||!form.valor){alert("Preencha nome e valor.");return;}
-              update(d=>{d.clientes.push({...form,valor:parseFloat(form.valor)});return d;});
+              update(d=>{d.clientes.push({...form,id:"cli_"+Math.random().toString(36).slice(2)+Date.now().toString(36),valor:parseFloat(form.valor)});return d;});
               setAtvCard(form.tipoReceita);
               setActiveTab("ativos");
               showToast("Receita adicionada!");
@@ -1252,6 +1742,7 @@ export default function App() {
     const targetAno = lead.anoInicio || 2026;
     const targetSet = targetAno === 2026 ? setData26 : setData27;
     const novoCliente = {
+      id: "cli_" + Math.random().toString(36).slice(2) + Date.now().toString(36),
       nome: lead.nome || "Cliente",
       tipoReceita: lead.tipoReceita || "cliente",
       tipo: lead.tipo || "outro",
@@ -1904,6 +2395,9 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
 
       {/* CONTENT */}
       <div className="content">{renderTab()}</div>
+
+      {/* DRAWER PAINEL DE CLIENTES */}
+      {renderPainelDrawer()}
 
       {/* TOAST */}
       {toast && <div className="toast show">{toast}</div>}
