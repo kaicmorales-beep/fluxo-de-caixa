@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Assistente from "./components/Assistente.jsx";
 import { createClient } from "@supabase/supabase-js";
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
 
 // ── SUPABASE CONFIG ──────────────────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -65,9 +66,9 @@ function gastosEmpMes(d, ano, prevD = null) {
     let soma = d.categorias.reduce((acc, cat) =>
       acc + cat.contas.reduce((a, ct) => {
         const gIni = parseInt(ct.inicio) + offset;
-        const par = parseInt(ct.parcelas), val = parseFloat(ct.valor) || 0;
+        const par = parseInt(ct.parcelas);
         if (gI < gIni || (par !== 0 && (gI - gIni) >= par)) return a;
-        return a + val;
+        return a + valEff(ct, i);
       }, 0), 0);
 
     // Carryover: contas parceladas de 2026 que transbordam para 2027
@@ -86,14 +87,35 @@ function gastosEmpMes(d, ano, prevD = null) {
   });
 }
 
+// Valor efetivo de um item (conta/cliente) num mês: usa override do mês se houver, senão o valor base
+function valEff(item, mi) {
+  const o = item && item.valorMes ? item.valorMes[mi] : undefined;
+  return (o !== undefined && o !== null) ? (parseFloat(o) || 0) : (parseFloat(item.valor) || 0);
+}
+// Aplica um novo valor a partir de um mês. scope: "mes" = só este mês | "frente" = deste mês em diante (preserva anteriores)
+function applyValor(item, scope, mi, newVal, msLen) {
+  if (!item.valorMes) item.valorMes = {};
+  if (scope === "mes") { item.valorMes[mi] = newVal; return; }
+  const ini = parseInt(item.inicio) || 0, par = parseInt(item.parcelas) || 0;
+  const oldBase = parseFloat(item.valor) || 0;
+  // fixa meses anteriores ativos no valor antigo (preserva o passado)
+  for (let k = ini; k < mi; k++) {
+    const ativo = k >= ini && (par === 0 || (k - ini) < par);
+    if (ativo && (item.valorMes[k] === undefined || item.valorMes[k] === null)) item.valorMes[k] = oldBase;
+  }
+  // do mês atual em diante segue o novo valor base → limpa overrides futuros
+  for (let k = mi; k < msLen; k++) delete item.valorMes[k];
+  item.valor = newVal;
+}
+
 function cliMes(d, ano) {
   const n = ANOS_CONFIG[ano].length;
   const a = Array(n).fill(0);
   d.clientes.forEach(c => {
     if (c.status !== "ativo") return;
-    const ini = parseInt(c.inicio), par = parseInt(c.parcelas), val = parseFloat(c.valor) || 0;
+    const ini = parseInt(c.inicio), par = parseInt(c.parcelas);
     for (let i = ini; i < n; i++) {
-      if (par === 0 || (i - ini) < par) a[i] += val;
+      if (par === 0 || (i - ini) < par) a[i] += valEff(c, i);
     }
   });
   return a;
@@ -319,9 +341,26 @@ const S = `
   /* CLI CARD */
   .cli-list{display:flex;flex-direction:column;gap:8px}
   .cli-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:13px 15px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  /* Linha compacta (Receitas) */
+  .cli-list.compact{gap:5px}
+  .cli-row{background:var(--white);border:1px solid var(--border);border-radius:8px;padding:6px 12px;display:flex;align-items:center;gap:10px}
+  .cli-row:hover{background:#fafaf8}
+  .rec-chk{width:16px;height:16px;cursor:pointer;flex-shrink:0;accent-color:var(--green)}
+  .cli-row-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;overflow:hidden}
+  .cli-row-nome{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cli-row-sub{font-size:11px;color:var(--muted);white-space:nowrap}
+  .cli-row-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
+  .val-edit{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
+  .val-in{width:84px;border:1px solid var(--green);border-radius:6px;padding:4px 7px;font-size:12px;font-family:var(--mono);text-align:right;outline:none;background:#f0f8f0}
+  .rec-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:10px}
+  .rec-bar-chk{display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;user-select:none}
   .badge{font-size:11px;font-weight:500;padding:3px 8px;border-radius:20px;white-space:nowrap}
   .b-g{background:var(--green-bg);color:var(--green-dark)}
   .b-gray{background:var(--surface);color:var(--muted)}
+  .pill-tog{font-size:11px;font-weight:600;padding:3px 11px;border-radius:20px;cursor:pointer;white-space:nowrap;transition:all .12s}
+  .pill-tog.on{background:var(--green-bg);color:var(--green-dark);border:1px solid #b0d4b0}
+  .pill-tog.off{background:#fdf6e8;color:#8a5c00;border:1px solid #e0c880}
+  .pill-tog:hover{filter:brightness(.97)}
   .b-w{background:var(--warn-bg);color:var(--warn)}
   .par-row{display:flex;gap:3px;margin-top:5px;flex-wrap:wrap}
   .par-dot{width:9px;height:9px;border-radius:2px}
@@ -436,6 +475,8 @@ const S = `
   .comment-item{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:9px 11px}
   .comment-date{font-size:10px;color:var(--muted);margin-bottom:3px}
   .comment-text{font-size:13px;line-height:1.5}
+  .ver-mais{border:none;background:none;color:#1a5fa0;font-size:12px;font-weight:600;cursor:pointer;padding:0;white-space:nowrap}
+  .ver-mais:hover{text-decoration:underline}
   .contract-warning{background:#fff8f0;border:1px solid #f0c060;border-radius:8px;padding:10px 13px;font-size:12px;color:#8a5c00}
   .contract-warning ul{margin:6px 0 0 16px;line-height:1.8}
   .col-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:12px;background:var(--surface);color:var(--muted);border:1px solid var(--border)}
@@ -466,10 +507,10 @@ const S = `
   .pn-temp{font-size:17px;line-height:1}
   .pn-empty{color:var(--muted);font-size:13px;padding:24px 0;text-align:center}
 
-  /* DRAWER */
-  .dw-ov{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;display:flex;justify-content:flex-end}
-  .dw{background:var(--bg);width:100%;max-width:540px;height:100%;display:flex;flex-direction:column;box-shadow:-12px 0 40px rgba(0,0,0,.22);animation:dwin .18s ease}
-  @keyframes dwin{from{transform:translateX(40px);opacity:.4}to{transform:translateX(0);opacity:1}}
+  /* CARD MODAL (centralizado, estilo ClickUp) */
+  .dw-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px}
+  .dw{background:var(--bg);width:100%;max-width:760px;max-height:90vh;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 70px rgba(0,0,0,.28);animation:dwin .16s ease}
+  @keyframes dwin{from{transform:scale(.97);opacity:0}to{transform:scale(1);opacity:1}}
   .dw-hdr{background:var(--white);padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-shrink:0}
   .dw-title{font-size:17px;font-weight:600;letter-spacing:-.01em}
   .dw-sub{font-size:12px;color:var(--muted);margin-top:2px}
@@ -555,9 +596,14 @@ export default function App() {
   const [kanbanCommentText, setKanbanCommentText] = useState("");
   const [draggingLeadId, setDraggingLeadId] = useState(null);
   const [dragOverColId, setDragOverColId] = useState(null);
-  const [painelDrawerId, setPainelDrawerId] = useState(null); // id da receita aberta no drawer
+  const [painelDrawerId, setPainelDrawerId] = useState(null); // id da receita aberta no modal
   const [painelHistText, setPainelHistText] = useState("");
   const [painelFiltro, setPainelFiltro] = useState("todos"); // todos | alertas | risco | inadimplente
+  const [painelMes, setPainelMes] = useState(0); // mês selecionado no painel
+  const [resumoMes, setResumoMes] = useState(0); // mês selecionado no resumo
+  const [selRec, setSelRec] = useState({}); // receitas selecionadas p/ enviar ao contador (id->true)
+  const [resumoCatRec, setResumoCatRec] = useState("all"); // filtro de grupo de receita no resumo
+  const [resumoCatDesp, setResumoCatDesp] = useState("all"); // filtro de categoria de despesa no resumo
 
   // Auth listener
   useEffect(() => {
@@ -643,6 +689,47 @@ export default function App() {
     });
   }
 
+  // Texto de registro: trunca os longos com "ver mais"
+  function CommentText({ text, limit = 160 }) {
+    const [open, setOpen] = useState(false);
+    if (!text) return null;
+    if (text.length <= limit) return <div className="comment-text">{text}</div>;
+    return (
+      <div className="comment-text">
+        {open ? text : text.slice(0, limit).trimEnd() + "… "}
+        <button className="ver-mais" onClick={()=>setOpen(o=>!o)}>{open ? "ver menos" : "ver mais +"}</button>
+      </div>
+    );
+  }
+
+  // Valor da linha: clica para editar; escolhe aplicar só no mês ou deste mês em diante
+  function ValorCell({ value, mes, tone = "rec", overridden = false, onApply }) {
+    const [open, setOpen] = useState(false);
+    const [v, setV] = useState(value);
+    const badgeStyle = tone === "desp"
+      ? { background:"#fdf0f0", color:"var(--red)", border:"1px solid #e0b0b0" }
+      : undefined;
+    if (!open) {
+      return (
+        <span className={`badge ${tone==="desp"?"":"b-g"}`} style={{ ...(badgeStyle||{}), cursor:"pointer" }}
+          title={`Clique para alterar o valor${overridden?" (valor específico deste mês)":""}`}
+          onClick={()=>{ setV(value); setOpen(true); }}>
+          {fmt(value)}/mês{overridden?" *":""}
+        </span>
+      );
+    }
+    return (
+      <span className="val-edit">
+        <input className="val-in" type="number" value={v} autoFocus
+          onChange={e=>setV(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Escape") setOpen(false); }} />
+        <button className="btn btn-sm" title={`Aplicar só em ${mes}`} onClick={()=>{ onApply(parseFloat(v)||0,"mes"); setOpen(false); }}>Só {mes.substring(0,3)}</button>
+        <button className="btn btn-p btn-sm" title={`Aplicar de ${mes} em diante`} onClick={()=>{ onApply(parseFloat(v)||0,"frente"); setOpen(false); }}>Em diante</button>
+        <button className="btn-rm" title="Cancelar" onClick={()=>setOpen(false)}>×</button>
+      </span>
+    );
+  }
+
   if (loadingAuth) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"var(--muted)",fontFamily:"var(--sans)"}}>Carregando...</div>;
   if (!session) return <><style>{S}</style><LoginPage /></>;
   if (!D) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"var(--muted)",fontFamily:"var(--sans)"}}>Carregando dados...</div>;
@@ -661,7 +748,7 @@ export default function App() {
   // ── RENDER TABS ────────────────────────────────────────────
   const tabs = [
     {id:"fluxo",     label:"Fluxo"},
-    {id:"empresa",   label:"Empresa"},
+    {id:"empresa",   label:"Despesas"},
     {id:"add-conta", label:"+ Conta"},
     {id:"clientes",  label:"+ Receita"},
     {id:"ativos",    label:"Receitas"},
@@ -686,7 +773,7 @@ export default function App() {
           <thead><tr>
             <th style={{textAlign:"left"}}>Mês</th>
             <th>G. Pessoal</th><th>G. Empresa</th>
-            <th>Banda</th><th>Clientes</th>
+            <th>Banda</th><th>Receitas</th>
             <th style={{background:"#fdf5f5"}}>Total gasto</th>
             <th style={{background:"#f5fdf5"}}>Total renda</th>
             <th>Saldo mês</th><th>Caixa acum.</th>
@@ -734,8 +821,8 @@ export default function App() {
 
     function catTotal(cat) {
       return cat.contas.reduce((a,ct)=>{
-        const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=parseFloat(ct.valor)||0;
-        return a+ms.reduce((acc,_,mi)=>mi>=ini&&(par===0||(mi-ini)<par)?acc+val:acc,0);
+        const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas);
+        return a+ms.reduce((acc,_,mi)=>mi>=ini&&(par===0||(mi-ini)<par)?acc+valEff(ct,mi):acc,0);
       },0);
     }
 
@@ -767,7 +854,7 @@ export default function App() {
 
           <div className="cli-list">
             {cat.contas.map((ct,cti)=>{
-              const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=parseFloat(ct.valor)||0;
+              const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=valEff(ct,empMes);
               // Mostrar apenas contas ativas no mês selecionado
               const ativaNoMes = empMes>=ini && (par===0||(empMes-ini)<par);
               if(!ativaNoMes) return null;
@@ -778,30 +865,25 @@ export default function App() {
                 <EditContaForm key={cti} ci={empCard} cti={cti} conta={ct} onDone={()=>setEditingConta(null)}/>
               );
 
+              const atual = par===0 ? null : (empMes-ini+1);
+              const pago = !!(ct.pagos&&ct.pagos[empMes]);
+              const ovr = !!(ct.valorMes && ct.valorMes[empMes]!=null);
               return (
-                <div className="cli-card" key={cti}>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{ct.nome}</div>
-                    <div style={{fontSize:12,color:"var(--muted)"}}>
-                      {par===0?"Fixa":par+"x"} · início {ms[ini]?ms[ini].substring(0,3):"?"}
-                      {ct.vencimento?` · vence dia ${ct.vencimento}`:""}
-                    </div>
-                    <div style={{marginTop:6}}>
-                      {par===0
-                        ? <span style={{fontSize:12,fontWeight:600,color:cat.cor}}>Fixa</span>
-                        : (()=>{
-                            const atual = empMes>=ini && (empMes-ini)<par ? (empMes-ini+1) : null;
-                            return <span style={{fontSize:13,fontWeight:700,fontFamily:"var(--mono)",color:atual?cat.cor:"var(--muted2)"}}>
-                              {atual?`${atual}/${par}`:`—/${par}`}
-                            </span>;
-                          })()
-                      }
-                    </div>
+                <div className="cli-row" key={cti}>
+                  <div className="cli-row-main">
+                    <span className="cli-row-nome">{ct.nome}</span>
+                    <span className="cli-row-sub">
+                      {par===0?"Fixa":`${atual}/${par}`}{ct.vencimento?` · vence dia ${ct.vencimento}`:""}
+                    </span>
                   </div>
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:2}}>
-                    <span className="badge" style={{background:"#fdf0f0",color:"var(--red)",border:"1px solid #e0b0b0"}}>{fmt(val)}/mês</span>
-                    {par>0&&<span className="badge b-gray">Total: {fmt(val*par)}</span>}
+                  <div className="cli-row-actions">
+                    <ValorCell value={val} mes={ms[empMes]} tone="desp" overridden={ovr}
+                      onApply={(nv,scope)=>update(d=>{applyValor(d.categorias[empCard].contas[cti],scope,empMes,nv,ms.length);return d;})}/>
                     {continuaProxAno&&<span className="badge" style={{background:"#eef4fb",color:"#1a5fa0",border:"1px solid #b0ccee"}}>continua em 2027</span>}
+                    <button className={`pill-tog ${pago?"on":"off"}`} title={`Marcar como ${pago?"não pago":"pago"} em ${ms[empMes]}`}
+                      onClick={()=>update(d=>{const x=d.categorias[empCard].contas[cti];if(!x.pagos)x.pagos={};x.pagos[empMes]=!x.pagos[empMes];return d;})}>
+                      {pago?"✓ Pago":"Não pago"}
+                    </button>
                     <button className="btn btn-sm" onClick={()=>setEditingConta({ci:empCard,cti})}>Editar</button>
                     <button className="btn-rm" onClick={()=>{if(confirm("Remover?"))update(d=>{d.categorias[empCard].contas.splice(cti,1);return d;});}}>×</button>
                   </div>
@@ -840,9 +922,9 @@ export default function App() {
           {D.categorias.map((cat,ci)=>{
             const total=catTotal(cat);
             const totalMes=cat.contas.reduce((a,ct)=>{
-              const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=parseFloat(ct.valor)||0;
+              const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas);
               const ativo=empMes>=ini&&(par===0||(empMes-ini)<par);
-              return a+(ativo?val:0);
+              return a+(ativo?valEff(ct,empMes):0);
             },0);
             return (
               <div key={ci} onClick={()=>{setEmpCard(ci);setEditingConta(null);}} style={{
@@ -896,6 +978,21 @@ export default function App() {
     if (atvCard) {
       const grupo = GRUPOS.find(g=>g.key===atvCard);
       const items = D.clientes.map((c,i)=>({...c,_i:i})).filter(c=>(c.tipoReceita||"cliente")===atvCard);
+      const ativosNoMes = items.filter(c=>{const ini=parseInt(c.inicio),par=parseInt(c.parcelas);return atvMes>=ini&&(par===0||(atvMes-ini)<par);});
+      const nSel = ativosNoMes.filter(c=>selRec[c.id]).length;
+      const allSel = ativosNoMes.length>0 && ativosNoMes.every(c=>selRec[c.id]);
+      const toggleAll = ()=>setSelRec(p=>{const n={...p};if(allSel)ativosNoMes.forEach(c=>delete n[c.id]);else ativosNoMes.forEach(c=>{n[c.id]=true;});return n;});
+      const copiarContador = ()=>{
+        const sel = ativosNoMes.filter(c=>selRec[c.id]);
+        if(sel.length===0){showToast("Selecione ao menos uma receita.");return;}
+        const fmtBR = v=>(parseFloat(v)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+        let txt = `Olá! Seguem as receitas de ${ms[atvMes]}/${ano} para emissão de NF:\n\n`;
+        sel.forEach((c,idx)=>{txt+=`${idx+1}. ${c.nome} — ${fmtBR(valEff(c,atvMes))}\n`;});
+        txt += `\nTotal: ${fmtBR(sel.reduce((a,c)=>a+valEff(c,atvMes),0))}`;
+        if(navigator.clipboard?.writeText){
+          navigator.clipboard.writeText(txt).then(()=>showToast(`Mensagem copiada (${sel.length} receita(s))!`)).catch(()=>window.prompt("Copie a mensagem:",txt));
+        } else window.prompt("Copie a mensagem:",txt);
+      };
       return (
         <>
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
@@ -911,16 +1008,26 @@ export default function App() {
             <button className="btn btn-p btn-sm" onClick={()=>setActiveTab("clientes")}>+ Receita</button>
           </div>
 
-          {items.filter(c=>{const ini=parseInt(c.inicio),par=parseInt(c.parcelas);return atvMes>=ini&&(par===0||(atvMes-ini)<par);}).length===0 && (
+          {ativosNoMes.length===0 ? (
             <div style={{color:"var(--muted)",fontSize:13,padding:"12px 0"}}>
               Nenhuma receita ativa em {ms[atvMes]}.
             </div>
+          ) : (
+            <div className="rec-bar">
+              <label className="rec-bar-chk">
+                <input type="checkbox" className="rec-chk" checked={allSel} onChange={toggleAll}/>
+                Selecionar todas
+              </label>
+              <span style={{fontSize:12,color:"var(--muted)"}}>{nSel} selecionada(s)</span>
+              <button className="btn btn-p btn-sm" style={{marginLeft:"auto"}} disabled={nSel===0} onClick={copiarContador}>
+                📋 Copiar mensagem pro contador
+              </button>
+            </div>
           )}
 
-          <div className="cli-list">
+          <div className="cli-list compact">
             {items.map(c=>{
-              const i=c._i, ini=parseInt(c.inicio), par=parseInt(c.parcelas), val=parseFloat(c.valor)||0;
-              const totalR=ms.reduce((acc,_,mi)=>mi<ini||(par!==0&&(mi-ini)>=par)?acc:acc+val,0);
+              const i=c._i, ini=parseInt(c.inicio), par=parseInt(c.parcelas), val=valEff(c,atvMes);
 
               // Só mostra se ativa no mês selecionado
               const ativaNoMes = atvMes>=ini && (par===0||(atvMes-ini)<par);
@@ -928,29 +1035,26 @@ export default function App() {
 
               if(editingIdx===i) return <EditItemForm key={i} idx={i} item={c} onDone={()=>setEditingIdx(null)}/>;
 
+              const atual = par===0 ? null : (atvMes-ini+1);
+              const rec = !!(c.recebidos&&c.recebidos[atvMes]);
+              const ovr = !!(c.valorMes && c.valorMes[atvMes]!=null);
               return (
-                <div className="cli-card" key={i}>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{c.nome}</div>
-                    <div style={{fontSize:12,color:"var(--muted)"}}>
-                      {TIPOS[c.tipo]||c.tipo||"—"} · início {ms[ini]||"?"} · {par===0?"Fixa":par+" parcela(s)"}
-                    </div>
-                    <div style={{marginTop:6}}>
-                      {par===0
-                        ? <span style={{fontSize:12,fontWeight:600,color:grupo.cor}}>Fixa</span>
-                        : (()=>{
-                            const atual = atvMes>=ini && (atvMes-ini)<par ? (atvMes-ini+1) : null;
-                            return <span style={{fontSize:13,fontWeight:700,fontFamily:"var(--mono)",color:atual?grupo.cor:"var(--muted2)"}}>
-                              {atual?`${atual}/${par}`:`—/${par}`}
-                            </span>;
-                          })()
-                      }
-                    </div>
+                <div className="cli-row" key={i}>
+                  <input type="checkbox" className="rec-chk" checked={!!selRec[c.id]} onChange={()=>setSelRec(p=>({...p,[c.id]:!p[c.id]}))}/>
+                  <div className="cli-row-main">
+                    <span className="cli-row-nome">{c.nome}</span>
+                    <span className="cli-row-sub">{TIPOS[c.tipo]||c.tipo||"—"} · {par===0?"Fixa":`${atual}/${par}`}</span>
                   </div>
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:2}}>
-                    <span className={`badge ${SBADGE[c.status]||"b-gray"}`}>{SLBL[c.status]||c.status}</span>
-                    <span className="badge b-g">{fmt(val)}/mês</span>
-                    {par>0&&<span className="badge b-gray">Total: {fmt(totalR)}</span>}
+                  <div className="cli-row-actions">
+                    {c.status!=="ativo" && <span className={`badge ${SBADGE[c.status]||"b-gray"}`}>{SLBL[c.status]||c.status}</span>}
+                    <ValorCell value={val} mes={ms[atvMes]} tone="rec" overridden={ovr}
+                      onApply={(nv,scope)=>update(d=>{applyValor(d.clientes[i],scope,atvMes,nv,ms.length);return d;})}/>
+                    {c.status==="ativo" && (
+                      <button className={`pill-tog ${rec?"on":"off"}`} title={`Marcar como ${rec?"não recebido":"recebido"} em ${ms[atvMes]}`}
+                        onClick={()=>update(d=>{const x=d.clientes[i];if(!x.recebidos)x.recebidos={};x.recebidos[atvMes]=!x.recebidos[atvMes];return d;})}>
+                        {rec?"✓ Recebido":"Não recebido"}
+                      </button>
+                    )}
                     <button className="btn btn-sm" onClick={()=>setEditingIdx(i)}>Editar</button>
                     <button className="btn-rm" onClick={()=>{if(confirm("Remover?"))update(d=>{d.clientes.splice(i,1);return d;});}}>×</button>
                   </div>
@@ -967,8 +1071,8 @@ export default function App() {
                 <table><thead><tr><th style={{textAlign:"left"}}>Mês</th><th>Total</th></tr></thead>
                   <tbody>{ms.map((m,mi)=>{
                     const v=items.filter(c=>c.status==="ativo").reduce((a,c)=>{
-                      const ini=parseInt(c.inicio),par=parseInt(c.parcelas),val=parseFloat(c.valor)||0;
-                      return mi>=ini&&(par===0||(mi-ini)<par)?a+val:a;
+                      const ini=parseInt(c.inicio),par=parseInt(c.parcelas);
+                      return mi>=ini&&(par===0||(mi-ini)<par)?a+valEff(c,mi):a;
                     },0);
                     return v>0?<tr key={mi}><td className="td-m">{m}</td><td className="td-n pos" style={{fontWeight:600}}>{fmt(v)}</td></tr>:null;
                   })}</tbody>
@@ -996,28 +1100,30 @@ export default function App() {
             <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={atvMes===ms.length-1} onClick={()=>setAtvMes(m=>m+1)}>›</button>
           </div>
         </div>
-        {totalGeral>0&&<div style={{fontFamily:"var(--mono)",fontSize:13,color:"var(--muted)",marginBottom:16}}>Total ativo em {ms[atvMes]}: <strong style={{color:"#1a6e1a"}}>{fmt(D.clientes.filter(c=>c.status==="ativo").reduce((a,c)=>{const ini=parseInt(c.inicio),par=parseInt(c.parcelas),val=parseFloat(c.valor)||0;return atvMes>=ini&&(par===0||(atvMes-ini)<par)?a+val:a;},0))}/mês</strong></div>}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
+        {totalGeral>0&&<div style={{fontFamily:"var(--mono)",fontSize:13,color:"var(--muted)",marginBottom:16}}>Total ativo em {ms[atvMes]}: <strong style={{color:"#1a6e1a"}}>{fmt(D.clientes.filter(c=>c.status==="ativo").reduce((a,c)=>{const ini=parseInt(c.inicio),par=parseInt(c.parcelas);return atvMes>=ini&&(par===0||(atvMes-ini)<par)?a+valEff(c,atvMes):a;},0))}/mês</strong></div>}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:10}}>
           {GRUPOS.map(g=>{
             const items=D.clientes.map((c,i)=>({...c,_i:i})).filter(c=>(c.tipoReceita||"cliente")===g.key);
             const ativosNoMes=items.filter(c=>c.status==="ativo"&&(()=>{const ini=parseInt(c.inicio),par=parseInt(c.parcelas);return atvMes>=ini&&(par===0||(atvMes-ini)<par);})());
-            const totalMes=ativosNoMes.reduce((a,c)=>a+(parseFloat(c.valor)||0),0);
+            const totalMes=ativosNoMes.reduce((a,c)=>a+valEff(c,atvMes),0);
             return (
               <div key={g.key} onClick={()=>setAtvCard(g.key)} style={{
                 background:g.bg, border:`1.5px solid ${g.brd}`, borderRadius:"var(--r)",
-                padding:18, cursor:"pointer", transition:"box-shadow .15s",
+                padding:"11px 13px", cursor:"pointer", transition:"box-shadow .15s",
               }}
                 onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,.1)"}
                 onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}
               >
-                <div style={{fontWeight:600,fontSize:14,color:g.cor,marginBottom:8}}>{g.label}</div>
-                <div style={{fontSize:22,fontWeight:700,fontFamily:"var(--mono)",color:g.cor}}>
-                  {fmt(totalMes)}<span style={{fontSize:11,fontWeight:400,color:"var(--muted)"}}>/mês</span>
+                <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8}}>
+                  <span style={{fontWeight:600,fontSize:12,color:g.cor}}>{g.label}</span>
+                  <span style={{fontSize:11,color:g.cor,fontWeight:500}}>→</span>
                 </div>
-                <div style={{fontSize:12,color:"var(--muted)",marginTop:4}}>
+                <div style={{fontSize:17,fontWeight:700,fontFamily:"var(--mono)",color:g.cor,marginTop:3}}>
+                  {fmt(totalMes)}<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>/mês</span>
+                </div>
+                <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>
                   {ativosNoMes.length} ativo{ativosNoMes.length!==1?"s":""} em {ms[atvMes]}
                 </div>
-                <div style={{marginTop:12,fontSize:12,color:g.cor,fontWeight:500}}>Ver detalhes →</div>
               </div>
             );
           })}
@@ -1033,7 +1139,7 @@ export default function App() {
                 const ini=parseInt(c.inicio),par=parseInt(c.parcelas);
                 return mi>=ini&&(par===0||(mi-ini)<par);
               });
-              const totalMes=ativosNoMes.reduce((a,c)=>a+(parseFloat(c.valor)||0),0);
+              const totalMes=ativosNoMes.reduce((a,c)=>a+valEff(c,mi),0);
               const selecionado=mi===atvMes;
               return (
                 <div key={mi} onClick={()=>{setAtvMes(mi);setAtvCard("cliente");}} style={{
@@ -1057,7 +1163,7 @@ export default function App() {
                           <div key={ci} style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
                             <div style={{width:6,height:6,borderRadius:"50%",background:g?.cor||"#888",flexShrink:0}}/>
                             <span style={{fontSize:11,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.nome}</span>
-                            <span style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--mono)",marginLeft:"auto",flexShrink:0}}>{fmt(parseFloat(c.valor)||0)}</span>
+                            <span style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--mono)",marginLeft:"auto",flexShrink:0}}>{fmt(valEff(c,mi))}</span>
                           </div>
                         );
                       })
@@ -1065,6 +1171,161 @@ export default function App() {
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        {/* GRÁFICO XY — receita por mês */}
+        <div className="card" style={{marginTop:24}}>
+          <div className="sec-label" style={{marginTop:0,marginBottom:14}}>Receita por mês — {ano}</div>
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={ms.map((m,mi)=>({ mes: m.substring(0,3), receita: cm[mi]||0 }))} margin={{top:5,right:14,left:0,bottom:0}}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e1db"/>
+              <XAxis dataKey="mes" tick={{fontSize:11,fill:"#888780"}} tickLine={false} axisLine={{stroke:"#d0cfc8"}}/>
+              <YAxis tick={{fontSize:11,fill:"#888780"}} tickLine={false} axisLine={false}
+                tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}/>
+              <Tooltip formatter={v=>[fmt(v),"Receita"]} labelStyle={{color:"#1a1a18",fontWeight:600}}
+                contentStyle={{borderRadius:8,border:"1px solid #e2e1db",fontSize:12}}/>
+              <Line type="monotone" dataKey="receita" stroke="#2d6a2d" strokeWidth={2.5}
+                dot={{r:3,fill:"#2d6a2d"}} activeDot={{r:5}}/>
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </>
+    );
+  }
+
+  // ── RESUMO DO MÊS (previsto x realizado) ───────────────────
+  function renderResumoMes() {
+    const mi = resumoMes;
+    const ativo = (ini, par) => mi >= ini && (par === 0 || (mi - ini) < par);
+
+    // Receitas itemizadas (clientes ativos no mês)
+    const recItens = [];
+    (D.clientes || []).forEach((c, i) => {
+      const ini = parseInt(c.inicio), par = parseInt(c.parcelas), val = parseFloat(c.valor) || 0;
+      if (c.status === "ativo" && ativo(ini, par)) {
+        recItens.push({ i, nome: c.nome, val: valEff(c, mi), ovr: !!(c.valorMes && c.valorMes[mi]!=null), grupo: c.tipoReceita || "cliente", recebido: !!(c.recebidos && c.recebidos[mi]) });
+      }
+    });
+    // Despesas itemizadas (contas ativas no mês)
+    const despItens = [];
+    (D.categorias || []).forEach((cat, ci) => {
+      cat.contas.forEach((ct, cti) => {
+        const ini = parseInt(ct.inicio), par = parseInt(ct.parcelas), val = parseFloat(ct.valor) || 0;
+        if (ativo(ini, par)) {
+          despItens.push({ ci, cti, nome: ct.nome, cat: cat.nome, cor: cat.cor, val: valEff(ct, mi), ovr: !!(ct.valorMes && ct.valorMes[mi]!=null), pago: !!(ct.pagos && ct.pagos[mi]) });
+        }
+      });
+    });
+
+    const recPrev = recItens.reduce((a, r) => a + r.val, 0);
+    const recReal = recItens.filter(r => r.recebido).reduce((a, r) => a + r.val, 0);
+    const despPrev = despItens.reduce((a, d) => a + d.val, 0);
+    const despReal = despItens.filter(d => d.pago).reduce((a, d) => a + d.val, 0);
+    const saldoPrev = recPrev - despPrev;
+    const saldoReal = recReal - despReal;
+    const aReceber = recPrev - recReal;
+    const aPagar = despPrev - despReal;
+
+    // Filtros por categoria (afetam apenas as listas abaixo, não os cards do mês)
+    const recView = resumoCatRec === "all" ? recItens : recItens.filter(r => r.grupo === resumoCatRec);
+    const despView = resumoCatDesp === "all" ? despItens : despItens.filter(d => String(d.ci) === String(resumoCatDesp));
+    const recViewTot = recView.reduce((a, r) => a + r.val, 0);
+    const despViewTot = despView.reduce((a, d) => a + d.val, 0);
+    const selStyle = { width:"auto", padding:"4px 8px", fontSize:12, marginLeft:"auto" };
+
+    return (
+      <>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:16}}>
+          <div>
+            <div className="pg-title" style={{marginBottom:2}}>Resumo do mês</div>
+            <div className="pg-sub" style={{marginBottom:0}}>Previsto × realizado de <strong>{ms[mi]} {ano}</strong>, com base no que está marcado como pago/recebido. Não altera a aba Fluxo.</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{fontSize:12,color:"var(--muted)"}}>Mês:</span>
+            <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={mi===0} onClick={()=>setResumoMes(m=>m-1)}>‹</button>
+            <select className="fi" style={{width:"auto",padding:"5px 10px",fontSize:13}} value={mi} onChange={e=>setResumoMes(parseInt(e.target.value))}>
+              {ms.map((m,idx)=><option key={idx} value={idx}>{m}</option>)}
+            </select>
+            <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={mi===ms.length-1} onClick={()=>setResumoMes(m=>m+1)}>›</button>
+          </div>
+        </div>
+
+        <div className="cards-row" style={{gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))"}}>
+          <div className="card">
+            <div className="stat-lbl">Receitas recebidas</div>
+            <div className="stat-val pos">{fmt(recReal)}</div>
+            <div className="stat-sub">de {fmt(recPrev)} previsto{aReceber>0?` · a receber ${fmt(aReceber)}`:""}</div>
+          </div>
+          <div className="card">
+            <div className="stat-lbl">Despesas pagas</div>
+            <div className="stat-val neg">{fmt(despReal)}</div>
+            <div className="stat-sub">de {fmt(despPrev)} previsto{aPagar>0?` · a pagar ${fmt(aPagar)}`:""}</div>
+          </div>
+          <div className="card">
+            <div className="stat-lbl">Saldo realizado</div>
+            <div className={`stat-val ${cc(saldoReal)}`}>{fmt(saldoReal)}</div>
+            <div className="stat-sub">previsto: {fmt(saldoPrev)}</div>
+          </div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:16,marginTop:4}}>
+          {/* A RECEBER */}
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+              <span className="sec-label" style={{margin:0}}>Receitas · {recView.filter(r=>r.recebido).length}/{recView.length} recebidas · {fmt(recViewTot)}</span>
+              <select className="fi" style={selStyle} value={resumoCatRec} onChange={e=>setResumoCatRec(e.target.value)}>
+                <option value="all">Todos os grupos</option>
+                {GRUPOS.map(g=><option key={g.key} value={g.key}>{g.label}</option>)}
+              </select>
+            </div>
+            {recItens.length===0 ? <div className="pn-empty" style={{padding:"14px 0"}}>Nenhuma receita ativa em {ms[mi]}.</div>
+             : recView.length===0 ? <div className="pn-empty" style={{padding:"14px 0"}}>Nenhuma receita nesse grupo.</div> : (
+              <div className="cli-list compact">
+                {recView.map(r=>(
+                  <div className="cli-row" key={"r"+r.i}>
+                    <div className="cli-row-main">
+                      <span className="cli-row-nome">{r.nome}</span>
+                    </div>
+                    <ValorCell value={r.val} mes={ms[mi]} tone="rec" overridden={r.ovr}
+                      onApply={(nv,scope)=>update(d=>{applyValor(d.clientes[r.i],scope,mi,nv,ms.length);return d;})}/>
+                    <button className={`pill-tog ${r.recebido?"on":"off"}`}
+                      onClick={()=>update(d=>{const x=d.clientes[r.i];if(!x.recebidos)x.recebidos={};x.recebidos[mi]=!x.recebidos[mi];return d;})}>
+                      {r.recebido?"✓ Recebido":"Não recebido"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* A PAGAR */}
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+              <span className="sec-label" style={{margin:0}}>Despesas · {despView.filter(d=>d.pago).length}/{despView.length} pagas · {fmt(despViewTot)}</span>
+              <select className="fi" style={selStyle} value={resumoCatDesp} onChange={e=>setResumoCatDesp(e.target.value)}>
+                <option value="all">Todas as categorias</option>
+                {(D.categorias||[]).map((cat,ci)=><option key={ci} value={ci}>{cat.nome}</option>)}
+              </select>
+            </div>
+            {despItens.length===0 ? <div className="pn-empty" style={{padding:"14px 0"}}>Nenhuma despesa ativa em {ms[mi]}.</div>
+             : despView.length===0 ? <div className="pn-empty" style={{padding:"14px 0"}}>Nenhuma despesa nessa categoria.</div> : (
+              <div className="cli-list compact">
+                {despView.map(d=>(
+                  <div className="cli-row" key={"d"+d.ci+"-"+d.cti}>
+                    <div className="cli-row-main">
+                      <span className="cli-row-nome">{d.nome}</span>
+                      <span className="cli-row-sub" style={{color:d.cor}}>{d.cat}</span>
+                    </div>
+                    <ValorCell value={d.val} mes={ms[mi]} tone="desp" overridden={d.ovr}
+                      onApply={(nv,scope)=>update(dd=>{applyValor(dd.categorias[d.ci].contas[d.cti],scope,mi,nv,ms.length);return dd;})}/>
+                    <button className={`pill-tog ${d.pago?"on":"off"}`}
+                      onClick={()=>update(dd=>{const x=dd.categorias[d.ci].contas[d.cti];if(!x.pagos)x.pagos={};x.pagos[mi]=!x.pagos[mi];return dd;})}>
+                      {d.pago?"✓ Pago":"Não pago"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </>
@@ -1081,12 +1342,18 @@ export default function App() {
 
   function renderPainel() {
     const hoje = new Date(); hoje.setHours(0,0,0,0);
-    // Espelha a aba Receitas: cada receita do ano vira uma linha
-    const linhas = (D.clientes || []).map(c => {
-      const crm = getCrm(c.id);
-      const alerts = computeAutoAlerts(crm, hoje);
-      return { c, crm, alerts };
-    });
+    // Visão principal: clientes ATIVOS no mês selecionado (mesma regra de cronograma da aba Receitas)
+    const ativoNoMes = (c, mi) => {
+      const ini = parseInt(c.inicio), par = parseInt(c.parcelas);
+      return c.status === "ativo" && mi >= ini && (par === 0 || (mi - ini) < par);
+    };
+    const linhas = (D.clientes || [])
+      .filter(c => ativoNoMes(c, painelMes))
+      .map(c => {
+        const crm = getCrm(c.id);
+        const alerts = computeAutoAlerts(crm, hoje);
+        return { c, crm, alerts };
+      });
 
     const nInad = linhas.filter(l => l.crm.statusFinanceiro === "inadimplente").length;
     const nRisco = linhas.filter(l => l.crm.saude === "risco" || l.crm.temperatura === "risco_cancel").length;
@@ -1108,8 +1375,20 @@ export default function App() {
 
     return (
       <>
-        <div className="pg-title" style={{marginBottom:2}}>Painel de Clientes</div>
-        <div className="pg-sub">Visão geral de {ano} — saúde, financeiro e o que precisa de atenção. Clique numa linha para ver tudo.</div>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}}>
+          <div>
+            <div className="pg-title" style={{marginBottom:2}}>Painel de Clientes</div>
+            <div className="pg-sub" style={{marginBottom:0}}>Clientes ativos em <strong>{ms[painelMes]} {ano}</strong>. Clique numa linha para ver tudo.</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{fontSize:12,color:"var(--muted)"}}>Mês:</span>
+            <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={painelMes===0} onClick={()=>setPainelMes(m=>m-1)}>‹</button>
+            <select className="fi" style={{width:"auto",padding:"5px 10px",fontSize:13}} value={painelMes} onChange={e=>setPainelMes(parseInt(e.target.value))}>
+              {ms.map((m,i)=><option key={i} value={i}>{m}</option>)}
+            </select>
+            <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={painelMes===ms.length-1} onClick={()=>setPainelMes(m=>m+1)}>›</button>
+          </div>
+        </div>
 
         <div className="cards-row">
           <div className="card"><div className="stat-lbl">Clientes</div><div className="stat-val">{linhas.length}</div></div>
@@ -1125,7 +1404,7 @@ export default function App() {
         </div>
 
         {linhas.length === 0 ? (
-          <div className="pn-empty">Nenhuma receita cadastrada em {ano}. Adicione em <strong>+ Receita</strong>.</div>
+          <div className="pn-empty">Nenhum cliente ativo em {ms[painelMes]} de {ano}. Cadastre em <strong>+ Receita</strong>.</div>
         ) : filtrada.length === 0 ? (
           <div className="pn-empty">Nenhum cliente neste filtro. 🎉</div>
         ) : (
@@ -1155,7 +1434,7 @@ export default function App() {
                       </td>
                       <td className="pn-td">{sau ? <span className="pn-sem" style={{background:sau.bg,color:sau.cor}}>{sau.dot} {sau.lbl}</span> : <span className="dim">—</span>}</td>
                       <td className="pn-td">{fin ? <span className="pn-sem" style={{background:fin.bg,color:fin.cor}}>{fin.dot} {fin.lbl}</span> : <span className="dim">—</span>}</td>
-                      <td className="td-n">{fmt(parseFloat(c.valor)||0)}</td>
+                      <td className="td-n">{fmt(valEff(c,painelMes))}</td>
                       <td className="pn-td">{fmtData(crm.ultimaReuniao)}</td>
                       <td className="pn-td">{fmtData(crm.proximaReuniao)}</td>
                       <td className="pn-td"><span className="pn-temp" title={temp?.lbl}>{temp ? temp.emoji : "—"}</span></td>
@@ -1491,6 +1770,8 @@ export default function App() {
         {ano===2027&&carryover!==null&&<div className="carry-banner">Caixa inicial herdado de dezembro/2026: <strong style={{fontFamily:"var(--mono)",marginLeft:4}}>{fmt(carryover)}</strong></div>}
         <div className="sec-label" style={{marginTop:0}}>Mês a mês</div>
         {renderFluxo()}
+        <hr className="dv"/>
+        {renderResumoMes()}
       </>
     );
     if (activeTab === "empresa") return renderEmpresa();
@@ -2170,7 +2451,7 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
                       {[...(form.comentarios||[])].reverse().map((c,i)=>(
                         <div className="comment-item" key={i}>
                           <div className="comment-date">{new Date(c.data).toLocaleString("pt-BR")}</div>
-                          <div className="comment-text">{c.texto}</div>
+                          <CommentText text={c.texto}/>
                         </div>
                       ))}
                     </div>
