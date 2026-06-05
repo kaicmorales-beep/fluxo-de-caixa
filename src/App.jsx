@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from "react";
 import Assistente from "./components/Assistente.jsx";
 import { createClient } from "@supabase/supabase-js";
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
+import ReactMarkdown from "react-markdown";
 
 // ── SUPABASE CONFIG ──────────────────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -475,8 +476,24 @@ const S = `
   .comment-item{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:9px 11px}
   .comment-date{font-size:10px;color:var(--muted);margin-bottom:3px}
   .comment-text{font-size:13px;line-height:1.5}
-  .ver-mais{border:none;background:none;color:#1a5fa0;font-size:12px;font-weight:600;cursor:pointer;padding:0;white-space:nowrap}
+  .ver-mais{border:none;background:none;color:#1a5fa0;font-size:12px;font-weight:600;cursor:pointer;padding:2px 0 0;white-space:nowrap}
   .ver-mais:hover{text-decoration:underline}
+  /* Markdown nos registros */
+  .md{font-size:13px;line-height:1.55;color:var(--text);overflow-wrap:anywhere}
+  .md-clamp{max-height:96px;overflow:hidden;-webkit-mask-image:linear-gradient(180deg,#000 62%,transparent);mask-image:linear-gradient(180deg,#000 62%,transparent)}
+  .md h1{font-size:16px;font-weight:600;margin:8px 0 4px;line-height:1.3}
+  .md h2{font-size:14px;font-weight:600;margin:8px 0 3px;line-height:1.3}
+  .md h3{font-size:13px;font-weight:600;margin:6px 0 2px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .md h1:first-child,.md h2:first-child,.md h3:first-child{margin-top:0}
+  .md p{margin:4px 0}
+  .md ul,.md ol{margin:4px 0 4px 18px}
+  .md li{margin:2px 0}
+  .md strong{font-weight:600}
+  .md em{font-style:italic}
+  .md a{color:#1a5fa0;text-decoration:underline}
+  .md code{font-family:var(--mono);background:var(--surface);padding:1px 5px;border-radius:4px;font-size:12px}
+  .md blockquote{border-left:3px solid var(--border2);padding-left:10px;margin:5px 0;color:var(--muted)}
+  .md hr{border:none;border-top:1px solid var(--border);margin:8px 0}
   .contract-warning{background:#fff8f0;border:1px solid #f0c060;border-radius:8px;padding:10px 13px;font-size:12px;color:#8a5c00}
   .contract-warning ul{margin:6px 0 0 16px;line-height:1.8}
   .col-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:12px;background:var(--surface);color:var(--muted);border:1px solid var(--border)}
@@ -689,15 +706,17 @@ export default function App() {
     });
   }
 
-  // Texto de registro: trunca os longos com "ver mais"
-  function CommentText({ text, limit = 160 }) {
+  // Texto de registro: renderiza Markdown e trunca os longos com "ver mais"
+  function CommentText({ text, limit = 200 }) {
     const [open, setOpen] = useState(false);
     if (!text) return null;
-    if (text.length <= limit) return <div className="comment-text">{text}</div>;
+    const long = text.length > limit;
     return (
       <div className="comment-text">
-        {open ? text : text.slice(0, limit).trimEnd() + "… "}
-        <button className="ver-mais" onClick={()=>setOpen(o=>!o)}>{open ? "ver menos" : "ver mais +"}</button>
+        <div className={`md${long && !open ? " md-clamp" : ""}`}>
+          <ReactMarkdown>{text}</ReactMarkdown>
+        </div>
+        {long && <button className="ver-mais" onClick={()=>setOpen(o=>!o)}>{open ? "ver menos" : "ver mais +"}</button>}
       </div>
     );
   }
