@@ -1246,6 +1246,23 @@ export default function App() {
     const aReceber = recPrev - recReal;
     const aPagar = despPrev - despReal;
 
+    // Saldo realizado acumulado dos meses anteriores (recebido - pago em cada mês anterior)
+    const realizadoMes = (k) => {
+      let r = 0, dd = 0;
+      (D.clientes || []).forEach(c => {
+        const ini = parseInt(c.inicio), par = parseInt(c.parcelas);
+        if (c.status === "ativo" && k >= ini && (par === 0 || (k - ini) < par) && c.recebidos && c.recebidos[k]) r += valEff(c, k);
+      });
+      (D.categorias || []).forEach(cat => cat.contas.forEach(ct => {
+        const ini = parseInt(ct.inicio), par = parseInt(ct.parcelas);
+        if (k >= ini && (par === 0 || (k - ini) < par) && ct.pagos && ct.pagos[k]) dd += valEff(ct, k);
+      }));
+      return r - dd;
+    };
+    let saldoAnterior = 0;
+    for (let k = 0; k < mi; k++) saldoAnterior += realizadoMes(k);
+    const saldoRealAcum = saldoAnterior + saldoReal;
+
     // Filtros por categoria (afetam apenas as listas abaixo, não os cards do mês)
     const recView = resumoCatRec === "all" ? recItens : recItens.filter(r => r.grupo === resumoCatRec);
     const despView = resumoCatDesp === "all" ? despItens : despItens.filter(d => String(d.ci) === String(resumoCatDesp));
@@ -1270,7 +1287,12 @@ export default function App() {
           </div>
         </div>
 
-        <div className="cards-row" style={{gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))"}}>
+        <div className="cards-row" style={{gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))"}}>
+          <div className="card">
+            <div className="stat-lbl">Saldo mês anterior</div>
+            <div className={`stat-val ${cc(saldoAnterior)}`}>{fmt(saldoAnterior)}</div>
+            <div className="stat-sub">{mi>0?`acumulado até ${ms[mi-1]}`:"sem mês anterior"}</div>
+          </div>
           <div className="card">
             <div className="stat-lbl">Receitas recebidas</div>
             <div className="stat-val pos">{fmt(recReal)}</div>
@@ -1282,9 +1304,9 @@ export default function App() {
             <div className="stat-sub">de {fmt(despPrev)} previsto{aPagar>0?` · a pagar ${fmt(aPagar)}`:""}</div>
           </div>
           <div className="card">
-            <div className="stat-lbl">Saldo realizado</div>
-            <div className={`stat-val ${cc(saldoReal)}`}>{fmt(saldoReal)}</div>
-            <div className="stat-sub">previsto: {fmt(saldoPrev)}</div>
+            <div className="stat-lbl">Saldo realizado (acum.)</div>
+            <div className={`stat-val ${cc(saldoRealAcum)}`}>{fmt(saldoRealAcum)}</div>
+            <div className="stat-sub">este mês: {fmt(saldoReal)} + anterior {fmt(saldoAnterior)}</div>
           </div>
         </div>
 
