@@ -281,15 +281,20 @@ const S = `
   .avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid var(--border)}
   .avatar-fallback{width:28px;height:28px;border-radius:50%;background:var(--green-bg);color:var(--green-dark);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:1px solid var(--border)}
 
-  /* TABS */
-  .tabs{background:var(--white);border-bottom:1px solid var(--border);padding:0 20px;display:flex;overflow-x:auto;-ms-overflow-style:none;scrollbar-width:none}
-  .tabs::-webkit-scrollbar{display:none}
-  .tab{padding:12px 15px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;transition:color .12s}
-  .tab:hover{color:var(--text)}
-  .tab.on{color:var(--green);border-bottom-color:var(--green);font-weight:600}
+  /* LAYOUT + SIDEBAR */
+  .layout{display:flex;align-items:stretch;min-height:calc(100vh - 52px)}
+  .sidebar{width:190px;flex-shrink:0;background:var(--white);border-right:1px solid var(--border);padding:10px 8px;display:flex;flex-direction:column;gap:2px;position:sticky;top:52px;height:calc(100vh - 52px);overflow-y:auto;overflow-x:hidden;transition:width .18s ease}
+  .sidebar.closed{width:52px}
+  .sb-toggle{display:flex;align-items:center;justify-content:center;border:1px solid var(--border2);background:var(--white);color:var(--muted);border-radius:7px;cursor:pointer;font-size:12px;padding:6px;margin-bottom:8px;transition:all .12s}
+  .sb-toggle:hover{border-color:var(--green);color:var(--green)}
+  .sb-item{display:flex;align-items:center;gap:9px;padding:9px 10px;border:none;background:none;border-radius:7px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;text-align:left;white-space:nowrap;overflow:hidden;transition:background .12s,color .12s}
+  .sb-item:hover{background:var(--surface);color:var(--text)}
+  .sb-item.on{background:var(--green-bg);color:var(--green-dark);font-weight:600}
+  .sb-ico{font-size:16px;flex-shrink:0;width:20px;text-align:center}
+  .sb-lbl{overflow:hidden;text-overflow:ellipsis}
 
   /* CONTENT */
-  .content{padding:20px;width:100%;box-sizing:border-box}
+  .content{padding:20px;width:100%;min-width:0;box-sizing:border-box}
 
   /* CARDS */
   .card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:16px}
@@ -439,8 +444,8 @@ const S = `
   @media(max-width:600px){
     .content{padding:8px}
     .topbar{height:44px}
-    .tabs{padding:0 8px}
-    .tab{padding:10px 10px;font-size:12px}
+    .layout{min-height:calc(100vh - 44px)}
+    .sidebar{top:44px;height:calc(100vh - 44px)}
   }
 
   /* KANBAN */
@@ -615,8 +620,8 @@ export default function App() {
   const [dragOverColId, setDragOverColId] = useState(null);
   const [painelDrawerId, setPainelDrawerId] = useState(null); // id da receita aberta no modal
   const [painelHistText, setPainelHistText] = useState("");
-  const [painelFiltro, setPainelFiltro] = useState("todos"); // todos | alertas | risco | inadimplente
-  const [painelMes, setPainelMes] = useState(0); // mês selecionado no painel
+  const [menuOpen, setMenuOpen] = useState(true); // menu lateral aberto/recolhido
+  const [ltvFiltro, setLtvFiltro] = useState("todos"); // todos | ativos | inativos
   const [resumoMes, setResumoMes] = useState(0); // mês selecionado no resumo
   const [selRec, setSelRec] = useState({}); // receitas selecionadas p/ enviar ao contador (id->true)
   const [resumoCatRec, setResumoCatRec] = useState("all"); // filtro de grupo de receita no resumo
@@ -764,18 +769,21 @@ export default function App() {
   const ge = gastosEmpMes(D, ano, prevD);
   const user = session.user;
 
-  // ── RENDER TABS ────────────────────────────────────────────
+  // ── RENDER TABS (menu lateral) ─────────────────────────────
   const tabs = [
-    {id:"fluxo",     label:"Fluxo"},
-    {id:"empresa",   label:"Despesas"},
-    {id:"add-conta", label:"+ Conta"},
-    {id:"clientes",  label:"+ Receita"},
-    {id:"ativos",    label:"Receitas"},
-    {id:"painel",    label:"Painel"},
-    {id:"cenarios",  label:"Cenários"},
-    {id:"reserva",   label:"Reserva"},
-    {id:"kanban",    label:"Kanban"},
+    {id:"fluxo",   label:"Fluxo",    icon:"📊"},
+    {id:"empresa", label:"Despesas", icon:"💸"},
+    {id:"ativos",  label:"Receitas", icon:"💰"},
+    {id:"ltv",     label:"LTV",      icon:"📈"},
+    {id:"kanban",  label:"Kanban",   icon:"📋"},
   ];
+
+  // Categorias de análise já usadas nas contas (sugestões para o campo)
+  const tagsDespesa = Array.from(new Set(
+    [...(data26?.categorias||[]), ...(data27?.categorias||[])]
+      .flatMap(cat=>(cat.contas||[]).map(ct=>(ct.tag||"").trim()))
+      .filter(Boolean)
+  )).sort();
 
   // ── FLUXO TABLE ────────────────────────────────────────────
   function renderFluxo() {
@@ -891,6 +899,7 @@ export default function App() {
                 <div className="cli-row" key={cti}>
                   <div className="cli-row-main">
                     <span className="cli-row-nome">{ct.nome}</span>
+                    {ct.tag && <span className="badge b-gray" style={{flexShrink:0}}>{ct.tag}</span>}
                     <span className="cli-row-sub">
                       {par===0?"Fixa":`${atual}/${par}`}{ct.vencimento?` · vence dia ${ct.vencimento}`:""}
                     </span>
@@ -973,11 +982,66 @@ export default function App() {
         </div>
 
         <button className="btn btn-sm" onClick={()=>{
-          const nome=prompt("Nome da nova categoria:");
+          const nome=prompt("Nome do novo grupo:");
           if(!nome)return;
           const cores=["#c0392b","#d67e20","#8e44ad","#1a5fa0","#1a7a4a","#806020","#305090"];
           update(d=>{d.categorias.push({id:"cat_"+Date.now(),nome:nome.trim(),cor:cores[d.categorias.length%cores.length],contas:[]});return d;});
-        }}>+ Nova categoria</button>
+        }}>+ Novo grupo</button>
+
+        {/* GASTOS POR CATEGORIA (análise) */}
+        {(()=>{
+          const porTag = {};
+          D.categorias.forEach(cat=>cat.contas.forEach(ct=>{
+            const tag = (ct.tag||"").trim() || "Sem categoria";
+            if(!porTag[tag]) porTag[tag] = { mes:0, ano:0, n:0 };
+            const ini=parseInt(ct.inicio), par=parseInt(ct.parcelas);
+            porTag[tag].n++;
+            if(empMes>=ini&&(par===0||(empMes-ini)<par)) porTag[tag].mes += valEff(ct,empMes);
+            ms.forEach((_,mi)=>{ if(mi>=ini&&(par===0||(mi-ini)<par)) porTag[tag].ano += valEff(ct,mi); });
+          }));
+          const linhas = Object.entries(porTag).sort((a,b)=>b[1].ano-a[1].ano);
+          const totAno = linhas.reduce((a,[,v])=>a+v.ano,0);
+          const totMes = linhas.reduce((a,[,v])=>a+v.mes,0);
+          if(linhas.length===0) return null;
+          const semCategoria = porTag["Sem categoria"]?.n || 0;
+          return (
+            <>
+              <div className="sec-label">Gastos por categoria</div>
+              {semCategoria>0 && (
+                <div className="alert warn"><span className="a-dot"/>{semCategoria} conta{semCategoria!==1?"s":""} ainda sem categoria de análise — edite a conta para classificar.</div>
+              )}
+              <div className="tbl-wrap" style={{maxWidth:640}}>
+                <table>
+                  <thead><tr>
+                    <th style={{textAlign:"left"}}>Categoria</th>
+                    <th>Contas</th>
+                    <th>{ms[empMes]}</th>
+                    <th>Total {ano}</th>
+                    <th>% do ano</th>
+                  </tr></thead>
+                  <tbody>
+                    {linhas.map(([tag,v])=>(
+                      <tr key={tag}>
+                        <td className="td-m" style={tag==="Sem categoria"?{color:"var(--muted)",fontStyle:"italic"}:{}}>{tag}</td>
+                        <td className="td-n">{v.n}</td>
+                        <td className="td-n neg">{v.mes>0?fmt(v.mes):"—"}</td>
+                        <td className="td-n neg" style={{fontWeight:600}}>{fmt(v.ano)}</td>
+                        <td className="td-n">{totAno>0?Math.round(v.ano/totAno*100)+"%":"—"}</td>
+                      </tr>
+                    ))}
+                    <tr style={{background:"var(--surface)",borderTop:"2px solid var(--border2)"}}>
+                      <td className="td-m" style={{fontSize:11,fontWeight:600,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".06em"}}>Total</td>
+                      <td className="td-n" style={{fontWeight:600}}>{linhas.reduce((a,[,v])=>a+v.n,0)}</td>
+                      <td className="td-n neg" style={{fontWeight:700}}>{fmt(totMes)}</td>
+                      <td className="td-n neg" style={{fontWeight:700}}>{fmt(totAno)}</td>
+                      <td className="td-n" style={{fontWeight:600}}>100%</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </>
+          );
+        })()}
       </>
     );
   }
@@ -1117,6 +1181,7 @@ export default function App() {
               {ms.map((m,i)=><option key={i} value={i}>{m}</option>)}
             </select>
             <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={atvMes===ms.length-1} onClick={()=>setAtvMes(m=>m+1)}>›</button>
+            <button className="btn btn-p btn-sm" onClick={()=>setActiveTab("clientes")}>+ Adicionar receita</button>
           </div>
         </div>
         {totalGeral>0&&<div style={{fontFamily:"var(--mono)",fontSize:13,color:"var(--muted)",marginBottom:16}}>Total ativo em {ms[atvMes]}: <strong style={{color:"#1a6e1a"}}>{fmt(D.clientes.filter(c=>c.status==="ativo").reduce((a,c)=>{const ini=parseInt(c.inicio),par=parseInt(c.parcelas);return atvMes>=ini&&(par===0||(atvMes-ini)<par)?a+valEff(c,atvMes):a;},0))}/mês</strong></div>}
@@ -1381,128 +1446,11 @@ export default function App() {
     return String(d.getDate()).padStart(2,"0") + "/" + String(d.getMonth()+1).padStart(2,"0");
   }
 
-  function renderPainel() {
-    const hoje = new Date(); hoje.setHours(0,0,0,0);
-    // Visão principal: clientes ATIVOS no mês selecionado (mesma regra de cronograma da aba Receitas)
-    const ativoNoMes = (c, mi) => {
-      const ini = parseInt(c.inicio), par = parseInt(c.parcelas);
-      return c.status === "ativo" && mi >= ini && (par === 0 || (mi - ini) < par);
-    };
-    const linhas = (D.clientes || [])
-      .filter(c => ativoNoMes(c, painelMes))
-      .map(c => {
-        const crm = getCrm(c.id);
-        const alerts = computeAutoAlerts(crm, hoje);
-        return { c, crm, alerts };
-      });
-
-    const nInad = linhas.filter(l => l.crm.statusFinanceiro === "inadimplente").length;
-    const nRisco = linhas.filter(l => l.crm.saude === "risco" || l.crm.temperatura === "risco_cancel").length;
-    const nAlerta = linhas.filter(l => l.alerts.length > 0).length;
-
-    const filtrada = linhas.filter(l => {
-      if (painelFiltro === "alertas") return l.alerts.length > 0;
-      if (painelFiltro === "risco") return l.crm.saude === "risco" || l.crm.temperatura === "risco_cancel";
-      if (painelFiltro === "inadimplente") return l.crm.statusFinanceiro === "inadimplente";
-      return true;
-    });
-
-    const filtros = [
-      { v:"todos",        l:`Todos (${linhas.length})` },
-      { v:"alertas",      l:`Com alertas (${nAlerta})` },
-      { v:"inadimplente", l:`Inadimplentes (${nInad})` },
-      { v:"risco",        l:`Em risco (${nRisco})` },
-    ];
-
-    return (
-      <>
-        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}}>
-          <div>
-            <div className="pg-title" style={{marginBottom:2}}>Painel de Clientes</div>
-            <div className="pg-sub" style={{marginBottom:0}}>Clientes ativos em <strong>{ms[painelMes]} {ano}</strong>. Clique numa linha para ver tudo.</div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={{fontSize:12,color:"var(--muted)"}}>Mês:</span>
-            <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={painelMes===0} onClick={()=>setPainelMes(m=>m-1)}>‹</button>
-            <select className="fi" style={{width:"auto",padding:"5px 10px",fontSize:13}} value={painelMes} onChange={e=>setPainelMes(parseInt(e.target.value))}>
-              {ms.map((m,i)=><option key={i} value={i}>{m}</option>)}
-            </select>
-            <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={painelMes===ms.length-1} onClick={()=>setPainelMes(m=>m+1)}>›</button>
-          </div>
-        </div>
-
-        <div className="cards-row">
-          <div className="card"><div className="stat-lbl">Clientes</div><div className="stat-val">{linhas.length}</div></div>
-          <div className="card"><div className="stat-lbl">Inadimplentes</div><div className="stat-val" style={{color:nInad?"var(--red)":"var(--text)"}}>{nInad}</div></div>
-          <div className="card"><div className="stat-lbl">Em risco</div><div className="stat-val" style={{color:nRisco?"var(--red)":"var(--text)"}}>{nRisco}</div></div>
-          <div className="card"><div className="stat-lbl">Com alertas</div><div className="stat-val" style={{color:nAlerta?"var(--warn)":"var(--text)"}}>{nAlerta}</div></div>
-        </div>
-
-        <div className="pn-filters">
-          {filtros.map(f => (
-            <button key={f.v} className={`pn-fbtn${painelFiltro===f.v?" on":""}`} onClick={()=>setPainelFiltro(f.v)}>{f.l}</button>
-          ))}
-        </div>
-
-        {linhas.length === 0 ? (
-          <div className="pn-empty">Nenhum cliente ativo em {ms[painelMes]} de {ano}. Cadastre em <strong>+ Receita</strong>.</div>
-        ) : filtrada.length === 0 ? (
-          <div className="pn-empty">Nenhum cliente neste filtro. 🎉</div>
-        ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead><tr>
-                <th style={{textAlign:"left"}}>Cliente</th>
-                <th style={{textAlign:"center"}}>Saúde</th>
-                <th style={{textAlign:"center"}}>Financeiro</th>
-                <th>Valor mensal</th>
-                <th style={{textAlign:"center"}}>Últ. reunião</th>
-                <th style={{textAlign:"center"}}>Próx. reunião</th>
-                <th style={{textAlign:"center"}}>Temp.</th>
-                <th style={{textAlign:"left"}}>Responsável</th>
-                <th style={{textAlign:"left"}}>Alertas</th>
-              </tr></thead>
-              <tbody>
-                {filtrada.map(({c, crm, alerts}) => {
-                  const fin = findOpt(FIN_OPTS, crm.statusFinanceiro);
-                  const sau = findOpt(SAUDE_OPTS, crm.saude);
-                  const temp = findOpt(TEMP_OPTS, crm.temperatura);
-                  return (
-                    <tr key={c.id} className="pn-row" onClick={()=>{setPainelDrawerId(c.id);setPainelHistText("");}}>
-                      <td className="pn-cli">
-                        <div className="pn-cli-nome">{c.nome}</div>
-                        <div className="pn-cli-sub">{crm.empresa || TIPOS[c.tipo] || GRUPOS.find(g=>g.key===(c.tipoReceita||"cliente"))?.label || "—"}</div>
-                      </td>
-                      <td className="pn-td">{sau ? <span className="pn-sem" style={{background:sau.bg,color:sau.cor}}>{sau.dot} {sau.lbl}</span> : <span className="dim">—</span>}</td>
-                      <td className="pn-td">{fin ? <span className="pn-sem" style={{background:fin.bg,color:fin.cor}}>{fin.dot} {fin.lbl}</span> : <span className="dim">—</span>}</td>
-                      <td className="td-n">{fmt(valEff(c,painelMes))}</td>
-                      <td className="pn-td">{fmtData(crm.ultimaReuniao)}</td>
-                      <td className="pn-td">{fmtData(crm.proximaReuniao)}</td>
-                      <td className="pn-td"><span className="pn-temp" title={temp?.lbl}>{temp ? temp.emoji : "—"}</span></td>
-                      <td className="pn-td-l">{crm.responsavel || <span className="dim">—</span>}</td>
-                      <td className="pn-td-l">
-                        {alerts.length === 0 ? <span className="dim">—</span> : (
-                          <div className="pn-alerts">
-                            {alerts.slice(0,3).map((a,i)=><span key={i} className={`pn-chip ${a.level}`}>{a.text}</span>)}
-                            {alerts.length>3 && <span className="pn-chip info">+{alerts.length-3}</span>}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </>
-    );
-  }
-
   function renderPainelDrawer() {
     if (!painelDrawerId) return null;
-    const c = (D.clientes || []).find(x => x.id === painelDrawerId);
-    if (!c) return null; // receita não existe neste ano
+    // Procura a receita nos dois anos (o LTV lista clientes de 2026 e 2027)
+    const c = [...(data26?.clientes||[]), ...(data27?.clientes||[])].find(x => x.id === painelDrawerId);
+    if (!c) return null; // receita não existe
     const crm = getCrm(c.id);
     const hoje = new Date(); hoje.setHours(0,0,0,0);
     const alerts = computeAutoAlerts(crm, hoje);
@@ -1742,66 +1690,167 @@ export default function App() {
     }
   }
 
-  // ── CENÁRIOS ───────────────────────────────────────────────
-  function renderCenarios() {
-    function sim(extra, from) {
-      let cx = carryover !== null ? carryover : D.caixaInicial;
-      return ms.map((mes,i)=>{
-        const g=(D.gastosPessoal[i]||0)+ge[i];
-        const e=(D.banda[i]||0)+cm[i]+(i>=from?extra:0);
-        cx+=e-g; return {mes,caixa:cx};
-      });
-    }
-    const f = ano===2026?1:0;
-    const cens=[
-      {t:"Sem cliente novo",    s:"Cenário atual",  e:0,    f,bc:"#f0b0b0"},
-      {t:"1 cliente (R$2.500)", s:"+R$2.500/mês",   e:2500, f,bc:"#e8d090"},
-      {t:"2 clientes (R$5k)",   s:"+R$5.000/mês",   e:5000, f,bc:"#a8d4a8"},
-      {t:"4 clientes (R$10k)",  s:"+R$10.000/mês",  e:10000,f,bc:"#6db86d"},
-    ];
-    const idxShow = [2,3,4,ms.length-1];
-    return (
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:12}}>
-        {cens.map((c,ci)=>{
-          const s=sim(c.e,c.f);
-          return <div className="card" key={ci} style={{borderColor:c.bc}}>
-            <div style={{fontWeight:600,fontSize:14,marginBottom:2}}>{c.t}</div>
-            <div style={{fontSize:12,color:"var(--muted)",marginBottom:12}}>{c.s}</div>
-            {idxShow.filter(idx=>idx<ms.length).map(idx=>{
-              const v=s[idx].caixa;
-              return <div key={idx} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid var(--border)",fontSize:12}}>
-                <span style={{color:"var(--muted)"}}>{ms[idx]}</span>
-                <span style={{fontFamily:"var(--mono)",fontWeight:600,color:v<0?"var(--red)":v<2000?"var(--warn)":"#1a6e1a"}}>{fmt(v)}</span>
-              </div>;
-            })}
-          </div>;
-        })}
-      </div>
-    );
-  }
+  // ── LTV DE CLIENTES ────────────────────────────────────────
+  function renderLTV() {
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
 
-  // ── RESERVA ────────────────────────────────────────────────
-  function renderReserva() {
-    const cx=last.caixa, m1=5000,m2=10000,mi=28500;
-    const pct=(v,m)=>Math.min(100,Math.max(0,Math.round(Math.max(0,v)/m*100)));
+    // Junta clientes de 2026 e 2027 (cada receita = uma entrada)
+    const entradas = [];
+    [[2026, data26],[2027, data27]].forEach(([yr, dd]) => {
+      (dd?.clientes||[]).forEach(c => entradas.push({ c, yr }));
+    });
+
+    // Data de início padrão: derivada do ano + mês de início cadastrado na receita
+    const defInicio = (c, yr) => {
+      const i = parseInt(c.inicio)||0;
+      const mes0 = yr===2026 ? 3+i : i; // 2026 começa em Abril (índice 3 do calendário)
+      return new Date(yr, mes0, 1);
+    };
+
+    const rows = entradas.map(({c, yr}) => {
+      const crm = getCrm(c.id);
+      const di = crm.dataEntrada ? new Date(crm.dataEntrada+"T00:00:00") : defInicio(c, yr);
+      const diValida = !isNaN(di);
+      // Meses decorridos do início até o mês atual (inclusive)
+      let meses = diValida ? (hoje.getFullYear()-di.getFullYear())*12 + (hoje.getMonth()-di.getMonth()) + 1 : 0;
+      if (meses < 0) meses = 0;
+      const par = parseInt(c.parcelas)||0;
+      const mesesAtivos = par===0 ? meses : Math.min(meses, par);
+      const valor = parseFloat(c.valor)||0;
+      const ltv = mesesAtivos * valor;
+      const ltvContrato = par===0 ? null : par * valor; // valor total previsto do contrato
+      const encerrado = par!==0 && meses >= par;
+      return { c, yr, crm, di: diValida ? di : null, mesesAtivos, valor, ltv, ltvContrato, encerrado };
+    });
+
+    const view = rows.filter(r => {
+      if (ltvFiltro === "ativos") return r.c.status === "ativo" && !r.encerrado;
+      if (ltvFiltro === "inativos") return r.c.status !== "ativo" || r.encerrado;
+      return true;
+    });
+
+    // KPIs gerais (sobre todos, não sobre o filtro)
+    const ativos = rows.filter(r => r.c.status === "ativo" && !r.encerrado);
+    const ltvTotal = rows.reduce((a,r)=>a+r.ltv, 0);
+    const ltvMedio = rows.length ? ltvTotal/rows.length : 0;
+    const ticketMedio = ativos.length ? ativos.reduce((a,r)=>a+r.valor,0)/ativos.length : 0;
+    const tempoMedio = rows.length ? rows.reduce((a,r)=>a+r.mesesAtivos,0)/rows.length : 0;
+    const mrrAtivo = ativos.reduce((a,r)=>a+r.valor, 0);
+
+    const dataISO = (d) => d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` : "";
+    const fmtInicio = (d) => d ? `${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}` : "—";
+
+    const filtros = [
+      { v:"todos",    l:`Todos (${rows.length})` },
+      { v:"ativos",   l:`Ativos (${ativos.length})` },
+      { v:"inativos", l:`Inativos/encerrados (${rows.length-ativos.length})` },
+    ];
+
     return (
       <>
-        <div className="cards-row">
-          {[{lbl:"Meta urgente",val:m1,sub:"mínimo de segurança",c:"var(--warn)"},{lbl:"Meta segura",val:m2,sub:"1,5 mês de conforto",c:"#1a6e1a"},{lbl:"Reserva ideal (3 meses)",val:mi,sub:`${fmt(Math.max(0,mi-cx))} faltam`,c:"var(--text)"}].map((m,i)=>(
-            <div className="card" key={i}>
-              <div className="stat-lbl">{m.lbl}</div>
-              <div className="stat-val" style={{color:m.c}}>{fmt(m.val)}</div>
-              <div className="stat-sub">{m.sub}</div>
-              <div className="meta-bg"><div className="meta-fill" style={{width:pct(cx,m.val)+"%",background:m.c}}/></div>
-              <div style={{fontSize:11,color:"var(--muted)"}}>{pct(cx,m.val)}% atingido</div>
-            </div>
+        <div className="pg-title">LTV de Clientes</div>
+        <div className="pg-sub">Lifetime Value calculado do início do contrato até o mês atual ({String(hoje.getMonth()+1).padStart(2,"0")}/{hoje.getFullYear()}). Ajuste a data de início direto no card.</div>
+
+        {/* KPIs */}
+        <div className="cards-row" style={{gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))"}}>
+          <div className="card"><div className="stat-lbl">Clientes</div><div className="stat-val">{rows.length}</div><div className="stat-sub">{ativos.length} ativo{ativos.length!==1?"s":""}</div></div>
+          <div className="card"><div className="stat-lbl">LTV total</div><div className="stat-val pos">{fmt(ltvTotal)}</div><div className="stat-sub">acumulado até hoje</div></div>
+          <div className="card"><div className="stat-lbl">LTV médio</div><div className="stat-val">{fmt(ltvMedio)}</div><div className="stat-sub">por cliente</div></div>
+          <div className="card"><div className="stat-lbl">Ticket médio</div><div className="stat-val">{fmt(ticketMedio)}</div><div className="stat-sub">mensal · ativos</div></div>
+          <div className="card"><div className="stat-lbl">Tempo médio</div><div className="stat-val">{tempoMedio.toFixed(1)}</div><div className="stat-sub">meses de contrato</div></div>
+          <div className="card"><div className="stat-lbl">Receita mensal ativa</div><div className="stat-val pos">{fmt(mrrAtivo)}</div><div className="stat-sub">soma dos ativos</div></div>
+        </div>
+
+        <div className="pn-filters">
+          {filtros.map(f => (
+            <button key={f.v} className={`pn-fbtn${ltvFiltro===f.v?" on":""}`} onClick={()=>setLtvFiltro(f.v)}>{f.l}</button>
           ))}
         </div>
-        <div className="card" style={{fontSize:13,color:"var(--muted)",lineHeight:1.7}}>
-          <strong style={{color:"var(--text)"}}>Onde guardar:</strong> CDB com liquidez diária — Nubank, Inter ou C6. Rende mais que poupança e você saca no mesmo dia.
-        </div>
+
+        {view.length === 0 ? (
+          <div className="pn-empty">Nenhum cliente neste filtro. Cadastre receitas na aba <strong>Receitas</strong> ou feche leads no <strong>Kanban</strong>.</div>
+        ) : (
+          <>
+            {/* CARDS INDIVIDUAIS */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))",gap:12,marginBottom:20}}>
+              {view.map((r,ri)=>{
+                const g = GRUPOS.find(g=>g.key===(r.c.tipoReceita||"cliente"));
+                return (
+                  <div key={r.c.id||ri} className="card" style={{borderColor:(g?.brd)||"var(--border)",display:"flex",flexDirection:"column",gap:6}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <div style={{width:8,height:8,borderRadius:"50%",background:g?.cor||"#888",flexShrink:0}}/>
+                      <span style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}} title={r.c.nome}>{r.c.nome}</span>
+                      {r.encerrado
+                        ? <span className="badge b-gray">Encerrado</span>
+                        : r.c.status!=="ativo" && <span className={`badge ${SBADGE[r.c.status]||"b-gray"}`}>{SLBL[r.c.status]||r.c.status}</span>}
+                    </div>
+                    <div style={{fontSize:22,fontWeight:700,fontFamily:"var(--mono)",color:"#1a6e1a"}}>{fmt(r.ltv)}</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>
+                      {fmt(r.valor)}/mês × {r.mesesAtivos} {r.mesesAtivos===1?"mês":"meses"}
+                      {r.ltvContrato!=null && <> · contrato: {fmt(r.ltvContrato)}</>}
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                      <label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".05em",flexShrink:0}}>Início</label>
+                      <input className="dw-in" type="date" style={{padding:"4px 7px",fontSize:12}}
+                        value={crmDataISO(r)}
+                        onChange={e=>updateCrm(r.c.id, {dataEntrada: e.target.value})}/>
+                    </div>
+                    <button className="btn btn-sm" style={{alignSelf:"flex-start",marginTop:2}}
+                      onClick={()=>{setPainelDrawerId(r.c.id);setPainelHistText("");}}>Ver detalhes →</button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* TABELA DE KPIs */}
+            <div className="sec-label">Todos os clientes — KPIs de LTV</div>
+            <div className="tbl-wrap">
+              <table>
+                <thead><tr>
+                  <th style={{textAlign:"left"}}>Cliente</th>
+                  <th style={{textAlign:"center"}}>Ano</th>
+                  <th style={{textAlign:"center"}}>Início</th>
+                  <th>Meses</th>
+                  <th>Valor mensal</th>
+                  <th>LTV acumulado</th>
+                  <th>LTV contrato</th>
+                  <th style={{textAlign:"center"}}>Status</th>
+                </tr></thead>
+                <tbody>
+                  {view.map((r,ri)=>(
+                    <tr key={"t"+(r.c.id||ri)} className="pn-row" onClick={()=>{setPainelDrawerId(r.c.id);setPainelHistText("");}}>
+                      <td className="pn-cli"><div className="pn-cli-nome">{r.c.nome}</div><div className="pn-cli-sub">{GRUPOS.find(g=>g.key===(r.c.tipoReceita||"cliente"))?.label||"—"}</div></td>
+                      <td className="pn-td">{r.yr}</td>
+                      <td className="pn-td">{fmtInicio(r.di)}</td>
+                      <td className="td-n">{r.mesesAtivos}</td>
+                      <td className="td-n">{fmt(r.valor)}</td>
+                      <td className="td-s pos">{fmt(r.ltv)}</td>
+                      <td className="td-n">{r.ltvContrato!=null?fmt(r.ltvContrato):"recorrente"}</td>
+                      <td className="pn-td">{r.encerrado?<span className="badge b-gray">Encerrado</span>:<span className={`badge ${SBADGE[r.c.status]||"b-gray"}`}>{SLBL[r.c.status]||r.c.status}</span>}</td>
+                    </tr>
+                  ))}
+                  <tr style={{background:"var(--surface)",borderTop:"2px solid var(--border2)"}}>
+                    <td className="td-m" style={{fontSize:11,fontWeight:600,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".06em"}}>Total ({view.length})</td>
+                    <td/><td/>
+                    <td className="td-n" style={{fontWeight:600}}>{view.reduce((a,r)=>a+r.mesesAtivos,0)}</td>
+                    <td className="td-n" style={{fontWeight:600}}>{fmt(view.reduce((a,r)=>a+r.valor,0))}</td>
+                    <td className="td-s pos" style={{fontWeight:700}}>{fmt(view.reduce((a,r)=>a+r.ltv,0))}</td>
+                    <td className="td-n" style={{fontWeight:600}}>{fmt(view.reduce((a,r)=>a+(r.ltvContrato||0),0))}</td>
+                    <td/>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </>
     );
+
+    // Data no formato do input date: usa a do CRM se houver, senão a derivada do cadastro
+    function crmDataISO(r) {
+      if (r.crm.dataEntrada) return r.crm.dataEntrada;
+      return dataISO(r.di);
+    }
   }
 
   // ── RENDER ACTIVE TAB ──────────────────────────────────────
@@ -1819,26 +1868,27 @@ export default function App() {
     if (activeTab === "add-conta") return <AddContaForm />;
     if (activeTab === "clientes") return <AddClienteForm />;
     if (activeTab === "ativos") return renderAtivos();
-    if (activeTab === "painel") return renderPainel();
-    if (activeTab === "cenarios") return <><div className="pg-title">Simulação de cenários</div><div className="pg-sub">Impacto de novos clientes no caixa.</div>{renderCenarios()}</>;
-    if (activeTab === "reserva") return <><div className="pg-title">Meta de reserva</div><div className="pg-sub">Progresso em direção à reserva de 3 meses.</div>{renderReserva()}</>;
+    if (activeTab === "ltv") return renderLTV();
     if (activeTab === "kanban") return renderKanban();
   }
 
   // Inline form components to access outer state via closure
   function AddContaForm() {
-    const [form, setForm] = useState({nome:"",catIdx:empCard??0,valor:"",inicio:0,parcelas:0,vencimento:""});
+    const [form, setForm] = useState({nome:"",catIdx:empCard??0,tag:"",valor:"",inicio:0,parcelas:0,vencimento:""});
     return (
       <>
         <div className="pg-title">Adicionar conta</div>
-        <div className="pg-sub">Defina nome, categoria, valor, mês de início e parcelas.</div>
+        <div className="pg-sub">Defina nome, grupo, categoria de análise, valor, mês de início e parcelas.</div>
         <div className="form-wrap">
           <div className="fg">
             <div className="fl"><label className="flabel">Nome</label><input className="fi" value={form.nome} onChange={e=>setForm(p=>({...p,nome:e.target.value}))} placeholder="Ex: Nubank fatura"/></div>
-            <div className="fl"><label className="flabel">Categoria</label>
+            <div className="fl"><label className="flabel">Grupo</label>
               <select className="fi" value={form.catIdx} onChange={e=>setForm(p=>({...p,catIdx:parseInt(e.target.value)}))}>
                 {D.categorias.map((c,i)=><option key={i} value={i}>{c.nome}</option>)}
               </select></div>
+            <div className="fl"><label className="flabel">Categoria (análise)</label>
+              <input className="fi" list="tags-despesa" value={form.tag} onChange={e=>setForm(p=>({...p,tag:e.target.value}))} placeholder="Ex: Software, Marketing"/>
+              <datalist id="tags-despesa">{tagsDespesa.map(t=><option key={t} value={t}/>)}</datalist></div>
             <div className="fl"><label className="flabel">Valor (R$)</label><input className="fi" type="number" value={form.valor} onChange={e=>setForm(p=>({...p,valor:e.target.value}))} placeholder="500"/></div>
             <div className="fl"><label className="flabel">Mês de início</label>
               <select className="fi" value={form.inicio} onChange={e=>setForm(p=>({...p,inicio:parseInt(e.target.value)}))}>
@@ -1855,7 +1905,8 @@ export default function App() {
           <div style={{display:"flex",gap:10}}>
             <button className="btn btn-p" onClick={()=>{
               if(!form.nome||!form.valor){alert("Preencha nome e valor.");return;}
-              update(d=>{d.categorias[form.catIdx].contas.push({nome:form.nome,valor:parseFloat(form.valor),inicio:form.inicio,parcelas:form.parcelas,vencimento:form.vencimento||"",status:"ativo"});return d;});
+              if(!form.tag.trim()){alert("Informe a categoria de análise da conta.");return;}
+              update(d=>{d.categorias[form.catIdx].contas.push({nome:form.nome,tag:form.tag.trim(),valor:parseFloat(form.valor),inicio:form.inicio,parcelas:form.parcelas,vencimento:form.vencimento||"",status:"ativo"});return d;});
               setEmpCard(form.catIdx);
               setActiveTab("empresa");
               showToast("Conta adicionada!");
@@ -1871,6 +1922,7 @@ export default function App() {
     const [form, setForm] = useState({
       nome: conta.nome||"",
       catIdx: ci,
+      tag: conta.tag||"",
       valor: conta.valor||"",
       inicio: conta.inicio??0,
       parcelas: conta.parcelas??0,
@@ -1882,10 +1934,13 @@ export default function App() {
         <div className="fg">
           <div className="fl"><label className="flabel">Nome</label>
             <input className="fi" value={form.nome} onChange={e=>setForm(p=>({...p,nome:e.target.value}))}/></div>
-          <div className="fl"><label className="flabel">Mover para categoria</label>
+          <div className="fl"><label className="flabel">Mover para grupo</label>
             <select className="fi" value={form.catIdx} onChange={e=>setForm(p=>({...p,catIdx:parseInt(e.target.value)}))}>
               {D.categorias.map((c,i)=><option key={i} value={i}>{c.nome}</option>)}
             </select></div>
+          <div className="fl"><label className="flabel">Categoria (análise)</label>
+            <input className="fi" list="tags-despesa-edit" value={form.tag} onChange={e=>setForm(p=>({...p,tag:e.target.value}))} placeholder="Ex: Software, Marketing"/>
+            <datalist id="tags-despesa-edit">{tagsDespesa.map(t=><option key={t} value={t}/>)}</datalist></div>
           <div className="fl"><label className="flabel">Valor (R$)</label>
             <input className="fi" type="number" value={form.valor} onChange={e=>setForm(p=>({...p,valor:e.target.value}))}/></div>
           <div className="fl"><label className="flabel">Mês de início</label>
@@ -1903,8 +1958,9 @@ export default function App() {
         <div style={{display:"flex",gap:10}}>
           <button className="btn btn-p" onClick={()=>{
             if(!form.nome||!form.valor){alert("Preencha nome e valor.");return;}
+            if(!form.tag.trim()){alert("Informe a categoria de análise da conta.");return;}
             update(d=>{
-              const ct={...d.categorias[ci].contas[cti],...form,valor:parseFloat(form.valor)};
+              const ct={...d.categorias[ci].contas[cti],...form,tag:form.tag.trim(),valor:parseFloat(form.valor)};
               if(form.catIdx!==ci){
                 d.categorias[ci].contas.splice(cti,1);
                 d.categorias[form.catIdx].contas.push(ct);
@@ -2708,15 +2764,21 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
         </div>
       </div>
 
-      {/* TABS */}
-      <div className="tabs">
-        {tabs.map(t=>(
-          <button key={t.id} className={`tab${activeTab===t.id?" on":""}`} onClick={()=>setActiveTab(t.id)}>{t.label}</button>
-        ))}
+      {/* LAYOUT: MENU LATERAL + CONTEÚDO */}
+      <div className="layout">
+        <div className={`sidebar${menuOpen?"":" closed"}`}>
+          <button className="sb-toggle" title={menuOpen?"Recolher menu":"Expandir menu"} onClick={()=>setMenuOpen(o=>!o)}>
+            {menuOpen ? "◀ Recolher" : "▶"}
+          </button>
+          {tabs.map(t=>(
+            <button key={t.id} className={`sb-item${activeTab===t.id?" on":""}`} title={t.label} onClick={()=>setActiveTab(t.id)}>
+              <span className="sb-ico">{t.icon}</span>
+              {menuOpen && <span className="sb-lbl">{t.label}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="content">{renderTab()}</div>
       </div>
-
-      {/* CONTENT */}
-      <div className="content">{renderTab()}</div>
 
       {/* DRAWER PAINEL DE CLIENTES */}
       {renderPainelDrawer()}
