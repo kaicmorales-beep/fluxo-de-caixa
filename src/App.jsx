@@ -260,15 +260,16 @@ async function loadKanbanFromDB(userId) {
     .eq("user_id", userId)
     .eq("ano", 0)
     .single();
-  if (error || !data) return { leads: [], crm: {}, categoriasAnalise: [], produtos: [] };
+  if (error || !data) return { leads: [], crm: {}, categoriasAnalise: [], produtos: [], colaboradores: [] };
   try {
     const d = data.dados;
     if (!Array.isArray(d.leads)) d.leads = [];
     if (!d.crm || typeof d.crm !== "object") d.crm = {};
     if (!Array.isArray(d.categoriasAnalise)) d.categoriasAnalise = [];
     if (!Array.isArray(d.produtos)) d.produtos = [];
+    if (!Array.isArray(d.colaboradores)) d.colaboradores = [];
     return d;
-  } catch { return { leads: [], crm: {}, categoriasAnalise: [], produtos: [] }; }
+  } catch { return { leads: [], crm: {}, categoriasAnalise: [], produtos: [], colaboradores: [] }; }
 }
 
 // ── STYLES ───────────────────────────────────────────────────
@@ -705,6 +706,16 @@ export default function App() {
     });
   }
 
+  // Igual ao update(), mas em um ano específico (pode ser diferente do ano ativo)
+  function updateAno(yrAlvo, updater) {
+    const set = yrAlvo === 2026 ? setData26 : setData27;
+    set(prev => {
+      const next = updater(JSON.parse(JSON.stringify(prev)));
+      saveData(next, yrAlvo);
+      return next;
+    });
+  }
+
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(""), 2800);
@@ -713,7 +724,7 @@ export default function App() {
   const saveKanbanData = useCallback(async (kdata) => {
     if (!session) return;
     try {
-      await saveToDB(session.user.id, 0, { leads: kdata.leads || [], crm: kdata.crm || {}, categoriasAnalise: kdata.categoriasAnalise || [], produtos: kdata.produtos || [] });
+      await saveToDB(session.user.id, 0, { leads: kdata.leads || [], crm: kdata.crm || {}, categoriasAnalise: kdata.categoriasAnalise || [], produtos: kdata.produtos || [], colaboradores: kdata.colaboradores || [] });
     } catch (err) {
       console.error("[fluxo-caixa] Erro ao salvar kanban:", err?.message || err);
     }
@@ -721,7 +732,7 @@ export default function App() {
 
   function updateKanban(updater) {
     setDataKanban(prev => {
-      const next = updater(JSON.parse(JSON.stringify(prev || { leads: [], crm: {}, categoriasAnalise: [], produtos: [] })));
+      const next = updater(JSON.parse(JSON.stringify(prev || { leads: [], crm: {}, categoriasAnalise: [], produtos: [], colaboradores: [] })));
       saveKanbanData(next);
       return next;
     });
@@ -835,6 +846,7 @@ export default function App() {
     {id:"ltv",        label:"LTV",        icon:"📈"},
     {id:"kanban",     label:"Kanban",     icon:"📋"},
     {id:"produtos",   label:"Produtos",   icon:"🛒"},
+    {id:"comissoes",  label:"Comissões",  icon:"💼"},
     {id:"categorias", label:"Categorias", icon:"🏷️"},
   ];
 
@@ -2069,6 +2081,7 @@ export default function App() {
     if (activeTab === "ltv") return renderLTV();
     if (activeTab === "kanban") return renderKanban();
     if (activeTab === "produtos") return <ProdutosTab />;
+    if (activeTab === "comissoes") return renderComissoes();
     if (activeTab === "categorias") return renderCategorias();
   }
 
@@ -2303,6 +2316,142 @@ export default function App() {
     );
   }
 
+  // ── COMISSÕES DE COLABORADORES ─────────────────────────────
+  function renderComissoes() {
+    const colabs = dataKanban?.colaboradores || [];
+
+    // Varre as contas de comissão nos dois anos
+    const comissoes = [];
+    [[2026,data26],[2027,data27]].forEach(([yr,dd])=>{
+      (dd?.categorias||[]).forEach((cat,ci)=>(cat.contas||[]).forEach((ct,cti)=>{
+        if (ct.comissao) comissoes.push({yr, ci, cti, ct});
+      }));
+    });
+
+    const ativa = (ct,mi)=>{const ini=parseInt(ct.inicio)||0,par=parseInt(ct.parcelas)||0;return mi>=ini&&(par===0||(mi-ini)<par);};
+    const ymLabel = (yr, idx) => { const base=yr===2026?3:0; const d=new Date(yr, base+(parseInt(idx)||0),1); return `${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`; };
+    const totalAnoColab = (list) => ms.reduce((a,_,mi)=>a+list.filter(x=>x.yr===ano&&ativa(x.ct,mi)).reduce((s,x)=>s+valEff(x.ct,mi),0),0);
+    const totalAnoGeral = totalAnoColab(comissoes);
+    const togglePago = (x, mi) => updateAno(x.yr, d=>{
+      const ct = d.categorias[x.ci]?.contas[x.cti];
+      if (ct){ if(!ct.pagos) ct.pagos={}; ct.pagos[mi]=!ct.pagos[mi]; }
+      return d;
+    });
+
+    return (
+      <>
+        <div className="pg-title">Comissões 💼</div>
+        <div className="pg-sub">Comissões dos colaboradores atreladas aos produtos vendidos. Cada comissão é lançada automaticamente em <strong>Despesas › Salários</strong> com o nome do colaborador e acompanha os meses do produto.</div>
+
+        <div className="cards-row" style={{gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",maxWidth:620}}>
+          <div className="card"><div className="stat-lbl">Colaboradores</div><div className="stat-val">{colabs.length}</div></div>
+          <div className="card"><div className="stat-lbl">Comissões ativas</div><div className="stat-val">{comissoes.length}</div></div>
+          <div className="card"><div className="stat-lbl">Total {ano}</div><div className="stat-val neg">{fmt(totalAnoGeral)}</div><div className="stat-sub">a pagar no ano</div></div>
+        </div>
+
+        {/* CADASTRO DE COLABORADORES */}
+        <div className="sec-label">Colaboradores</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:8}}>
+          {colabs.map(cb=>(
+            <span key={cb.id} className="pn-sem" style={{background:"#eef4fb",color:"#1a4a7a",cursor:"pointer"}} title="Clique para remover (as comissões já lançadas não são alteradas)"
+              onClick={()=>{if(confirm(`Remover o colaborador "${cb.nome}"? As comissões já lançadas em Despesas continuam.`))updateKanban(d=>{d.colaboradores=(d.colaboradores||[]).filter(x=>x.id!==cb.id);return d;});}}>
+              {cb.nome} ✕
+            </span>
+          ))}
+          <button className="btn btn-p btn-sm" onClick={()=>{
+            const nome=prompt("Nome do colaborador:");
+            if(!nome||!nome.trim())return;
+            updateKanban(d=>{d.colaboradores=[...(d.colaboradores||[]), {id:"cb_"+Date.now(), nome:nome.trim()}];return d;});
+          }}>+ Cadastrar colaborador</button>
+        </div>
+
+        {comissoes.length===0 ? (
+          <div className="pn-empty">
+            Nenhuma comissão atrelada ainda.<br/>
+            Abra os <strong>produtos de um cliente</strong> (menu LTV → clique no card) e use o botão <strong>💼</strong> no produto para atrelar a comissão de um colaborador.
+          </div>
+        ) : (
+          <>
+            {colabs.map(cb=>{
+              const minhas = comissoes.filter(x=>x.ct.comissao.colabId===cb.id);
+              if (minhas.length===0) return null;
+              const totAno = totalAnoColab(minhas);
+              return (
+                <div key={cb.id} className="card" style={{marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+                    <span style={{fontWeight:600,fontSize:15}}>💼 {cb.nome}</span>
+                    <span style={{fontSize:12,color:"var(--muted)"}}>{minhas.length} comissão(ões)</span>
+                    <span style={{fontFamily:"var(--mono)",fontSize:13,fontWeight:600,color:"var(--red)",marginLeft:"auto"}}>{fmt(totAno)} em {ano}</span>
+                  </div>
+
+                  {/* Comissões (cliente · produto · período) */}
+                  <div className="cli-list compact" style={{marginBottom:12}}>
+                    {minhas.map((x,i)=>{
+                      const par=parseInt(x.ct.parcelas)||0, ini=parseInt(x.ct.inicio)||0;
+                      const pagosN = Object.values(x.ct.pagos||{}).filter(Boolean).length;
+                      return (
+                        <div className="cli-row" key={i}>
+                          <div className="cli-row-main">
+                            <span className="cli-row-nome">{x.ct.comissao.cliNome}</span>
+                            <span className="cli-row-sub">🛒 {x.ct.comissao.prodNome} · {par===0?`desde ${ymLabel(x.yr,ini)} (recorrente)`:`${ymLabel(x.yr,ini)} até ${ymLabel(x.yr,ini+par-1)}`}</span>
+                          </div>
+                          <div className="cli-row-actions">
+                            {par>0 && <span className="badge b-gray">{pagosN}/{par} pagas</span>}
+                            <span className="badge" style={{background:"#fdf0f0",color:"var(--red)",border:"1px solid #e0b0b0"}}>{fmt(parseFloat(x.ct.valor)||0)}/mês</span>
+                            <button className="btn-rm" title="Remover comissão (sai das Despesas)" onClick={()=>{
+                              if(!confirm(`Remover a comissão de ${cb.nome} sobre ${x.ct.comissao.cliNome}?`))return;
+                              updateAno(x.yr, d=>{ d.categorias.forEach(cat=>{ cat.contas=cat.contas.filter(ct=>ct!==null&&!(ct.comissao&&ct.comissao.prodId===x.ct.comissao.prodId&&ct.comissao.colabId===cb.id&&ct.comissao.cliId===x.ct.comissao.cliId)); }); return d; });
+                            }}>×</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Agenda de pagamento do ano selecionado */}
+                  <div className="sec-label" style={{marginTop:0}}>Meses a pagar em {ano}</div>
+                  <div className="tbl-wrap" style={{marginBottom:0}}>
+                    <table>
+                      <thead><tr><th style={{textAlign:"left"}}>Mês</th><th>Total</th><th style={{textAlign:"left"}}>Clientes (clique para marcar pago)</th></tr></thead>
+                      <tbody>
+                        {ms.map((m,mi)=>{
+                          const doMes = minhas.filter(x=>x.yr===ano&&ativa(x.ct,mi));
+                          if (doMes.length===0) return null;
+                          const tot = doMes.reduce((a,x)=>a+valEff(x.ct,mi),0);
+                          const tudoPago = doMes.every(x=>x.ct.pagos&&x.ct.pagos[mi]);
+                          return (
+                            <tr key={mi} style={tudoPago?{background:"var(--green-bg)"}:{}}>
+                              <td className="td-m">{m}</td>
+                              <td className="td-n neg" style={{fontWeight:600}}>{fmt(tot)}</td>
+                              <td className="pn-td-l">
+                                <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                                  {doMes.map((x,i)=>{
+                                    const pago = !!(x.ct.pagos&&x.ct.pagos[mi]);
+                                    return (
+                                      <span key={i} className={`pill-tog ${pago?"on":"off"}`} style={{cursor:"pointer"}}
+                                        title={`${x.ct.comissao.cliNome} · ${fmt(valEff(x.ct,mi))} — marcar como ${pago?"não pago":"pago"}`}
+                                        onClick={()=>togglePago(x,mi)}>
+                                        {pago?"✓ ":""}{x.ct.comissao.cliNome} {fmt(valEff(x.ct,mi))}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </>
+    );
+  }
+
   // ── CATEGORIAS DE ANÁLISE (config) ─────────────────────────
   function renderCategorias() {
     const configuradas = dataKanban?.categoriasAnalise || [];
@@ -2427,6 +2576,7 @@ export default function App() {
     const hojeISO = new Date().toISOString().slice(0,10);
     const [formP, setFormP] = useState({produtoId:"", valor:"", inicioYM: hojeISO.slice(0,7), parcelas:0});
     const [formA, setFormA] = useState({produtoId:"", valor:"", data:hojeISO});
+    const [comForm, setComForm] = useState(null); // {prodId, colabId, valor}
     if (!found) return null;
     const { yr, c: cli } = found;
     const msAno = ANOS_CONFIG[yr];
@@ -2460,6 +2610,47 @@ export default function App() {
       setF(f=>({...f, produtoId:e.target.value, valor: p ? p.valor : f.valor}));
     };
 
+    // ── COMISSÕES ATRELADAS AOS PRODUTOS ──
+    const colabs = dataKanban?.colaboradores || [];
+    const anoData = yr===2026 ? data26 : data27;
+    const comissoesDoProduto = (prodId) => {
+      const list = [];
+      (anoData?.categorias||[]).forEach(cat => (cat.contas||[]).forEach(ct => {
+        if (ct.comissao?.prodId === prodId) list.push(ct);
+      }));
+      return list;
+    };
+    const removerComissao = (prodId, colabId) => {
+      updateAno(yr, d=>{
+        d.categorias.forEach(cat=>{ cat.contas = cat.contas.filter(ct=>!(ct.comissao && ct.comissao.prodId===prodId && ct.comissao.colabId===colabId)); });
+        return d;
+      });
+      showToast("Comissão removida das despesas.");
+    };
+    const atrelarComissao = (p) => {
+      const colab = colabs.find(x=>x.id===comForm.colabId);
+      if(!colab){alert("Selecione um colaborador.");return;}
+      const v = parseFloat(comForm.valor)||0;
+      if(!v){alert("Informe o valor mensal da comissão.");return;}
+      updateAno(yr, d=>{
+        // Lança na categoria Salários (cria se não existir)
+        let gi = d.categorias.findIndex(cat=>cat.id==="salarios"||/sal[aá]rio/i.test(cat.nome));
+        if (gi<0){ d.categorias.push({id:"salarios",nome:"Salários",cor:"#1a5fa0",contas:[]}); gi=d.categorias.length-1; }
+        d.categorias[gi].contas.push({
+          nome:`Comissão ${colab.nome} — ${cli.nome}`,
+          tag:"Comissão",
+          valor:v,
+          inicio:parseInt(p.inicio)||0,   // mesmos meses do produto
+          parcelas:parseInt(p.parcelas)||0,
+          vencimento:"", status:"ativo",
+          comissao:{colabId:colab.id,colabNome:colab.nome,cliId:cli.id,cliNome:cli.nome,prodId:p.id,prodNome:p.nome},
+        });
+        return d;
+      });
+      setComForm(null);
+      showToast(`Comissão de ${colab.nome} lançada em Despesas › Salários!`);
+    };
+
     return (
       <div className="edit-modal-ov" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
         <div className="edit-modal">
@@ -2487,8 +2678,10 @@ export default function App() {
                     const iniDate = idxToDate(iniIdx);
                     const fimDate = par>0 ? new Date(iniDate.getFullYear(), iniDate.getMonth()+par-1, 1) : null;
                     const mut = (fn) => updateCli(cc=>{const x=(cc.produtosContratados||[]).find(q=>q.id===p.id); if(x) fn(x);});
+                    const coms = comissoesDoProduto(p.id);
                     return (
-                      <div className="cli-row" key={p.id} style={{flexWrap:"wrap",rowGap:6}}>
+                      <div key={p.id} style={{display:"flex",flexDirection:"column",gap:5}}>
+                      <div className="cli-row" style={{flexWrap:"wrap",rowGap:6}}>
                         <div className="cli-row-main" style={{minWidth:130}}>
                           <span className="cli-row-nome">{p.nome}</span>
                           {p.renovacaoDe && <span className="badge b-g" title="Período de renovação">↻ renovação</span>}
@@ -2519,8 +2712,42 @@ export default function App() {
                                 showToast(`${p.nome} renovado por mais ${par} ${par===1?"mês":"meses"}!`);
                               }}>↻ Renovar</button>
                           )}
+                          <button className="btn btn-sm" title="Atrelar comissão de colaborador (lança em Despesas › Salários)"
+                            onClick={()=>setComForm(comForm?.prodId===p.id?null:{prodId:p.id, colabId:colabs[0]?.id||"", valor:""})}>💼</button>
                           <button className="btn-rm" onClick={()=>{if(confirm(`Remover "${p.nome}" deste cliente?`))updateCli(cc=>{cc.produtosContratados=(cc.produtosContratados||[]).filter(x=>x.id!==p.id);});}}>×</button>
                         </div>
+                      </div>
+
+                      {/* Comissões atreladas a este produto */}
+                      {coms.length>0 && (
+                        <div style={{display:"flex",gap:6,flexWrap:"wrap",paddingLeft:12}}>
+                          {coms.map((ct,i)=>(
+                            <span key={i} className="pn-chip info" style={{cursor:"pointer"}} title="Comissão em Despesas › Salários — clique para remover"
+                              onClick={()=>{if(confirm(`Remover a comissão de ${ct.comissao.colabNome} deste produto?`))removerComissao(p.id, ct.comissao.colabId);}}>
+                              💼 {ct.comissao.colabNome} · {fmt(parseFloat(ct.valor)||0)}/mês ✕
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Form de nova comissão */}
+                      {comForm?.prodId===p.id && (
+                        colabs.length===0 ? (
+                          <div className="alert warn" style={{marginBottom:0,marginLeft:12}}><span className="a-dot"/>Nenhum colaborador cadastrado. Cadastre no menu <strong>Comissões 💼</strong>.</div>
+                        ) : (
+                          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",paddingLeft:12}}>
+                            <div className="fl" style={{minWidth:150}}><label className="flabel">Colaborador</label>
+                              <select className="fi" value={comForm.colabId} onChange={e=>setComForm(f=>({...f,colabId:e.target.value}))}>
+                                {colabs.map(cb=><option key={cb.id} value={cb.id}>{cb.nome}</option>)}
+                              </select></div>
+                            <div className="fl" style={{width:120}}><label className="flabel">Comissão/mês (R$)</label>
+                              <input className="fi" type="number" value={comForm.valor} onChange={e=>setComForm(f=>({...f,valor:e.target.value}))}/></div>
+                            <span style={{fontSize:11,color:"var(--muted)",paddingBottom:8}}>× {par===0?"recorrente":`${par} ${par===1?"mês":"meses"}`} (acompanha o produto)</span>
+                            <button className="btn btn-p btn-sm" style={{marginBottom:1}} onClick={()=>atrelarComissao(p)}>Atrelar</button>
+                            <button className="btn btn-sm" style={{marginBottom:1}} onClick={()=>setComForm(null)}>Cancelar</button>
+                          </div>
+                        )
+                      )}
                       </div>
                     );
                   })}
