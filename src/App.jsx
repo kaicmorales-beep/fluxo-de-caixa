@@ -666,6 +666,7 @@ export default function App() {
   const [atvCard, setAtvCard] = useState(null); // null | "cliente" | "servico" | "comissao"
   const [editingIdx, setEditingIdx] = useState(null);
   const [empCard, setEmpCard] = useState(null);  // null | number (índice da categoria)
+  const [empColabFiltro, setEmpColabFiltro] = useState("all"); // filtro por colaborador no detalhe
   const [editingConta, setEditingConta] = useState(null); // null | {ci, cti}
   const [empMes, setEmpMes] = useState(0);
   const [atvMes, setAtvMes] = useState(0);
@@ -965,6 +966,17 @@ export default function App() {
     if (empCard !== null) {
       const cat = D.categorias[empCard];
       if (!cat) { setEmpCard(null); return null; }
+
+      // Filtro por colaborador (contas de comissão) + KPIs sobre o conjunto filtrado
+      const colabsCat = Array.from(new Set(cat.contas.filter(ct=>ct.comissao).map(ct=>ct.comissao.colabNome)));
+      const visivel = (ct) => empColabFiltro==="all" || ct.comissao?.colabNome===empColabFiltro;
+      const contasVis = cat.contas.filter(visivel);
+      const ativaEm = (ct,mi) => { const {ini,par}=contaEff(D,ct); return mi>=ini&&(par===0||(mi-ini)<par); };
+      const kpiMes  = contasVis.reduce((a,ct)=>a+(ativaEm(ct,empMes)?valEff(ct,empMes):0),0);
+      const kpiPago = contasVis.reduce((a,ct)=>a+((ativaEm(ct,empMes)&&ct.pagos&&ct.pagos[empMes])?valEff(ct,empMes):0),0);
+      const kpiAno  = contasVis.reduce((a,ct)=>a+ms.reduce((s,_,mi)=>s+(ativaEm(ct,mi)?valEff(ct,mi):0),0),0);
+      const nAtivasMes = contasVis.filter(ct=>ativaEm(ct,empMes)).length;
+
       return (
         <>
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
@@ -983,12 +995,42 @@ export default function App() {
             <button className="btn btn-p btn-sm" onClick={()=>setActiveTab("add-conta")}>+ Adicionar conta</button>
           </div>
 
+          {/* KPIs (respeitam o filtro por colaborador) */}
+          <div className="cards-row" style={{gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",maxWidth:760}}>
+            <div className="card">
+              <div className="stat-lbl">Total em {ms[empMes]}{empColabFiltro!=="all"?` · ${empColabFiltro}`:""}</div>
+              <div className="stat-val neg">{fmt(kpiMes)}</div>
+              <div className="stat-sub">{nAtivasMes} conta{nAtivasMes!==1?"s":""} ativa{nAtivasMes!==1?"s":""} no mês</div>
+            </div>
+            <div className="card">
+              <div className="stat-lbl">Pago em {ms[empMes]}</div>
+              <div className="stat-val" style={{color:kpiPago>=kpiMes&&kpiMes>0?"#1a6e1a":"var(--warn)"}}>{fmt(kpiPago)}</div>
+              <div className="stat-sub">{kpiMes-kpiPago>0?`falta pagar ${fmt(kpiMes-kpiPago)}`:kpiMes>0?"✓ tudo pago":"nada a pagar"}</div>
+            </div>
+            <div className="card">
+              <div className="stat-lbl">Total {ano}{empColabFiltro!=="all"?` · ${empColabFiltro}`:""}</div>
+              <div className="stat-val neg">{fmt(kpiAno)}</div>
+              <div className="stat-sub">média {fmt(kpiAno/ms.length)}/mês</div>
+            </div>
+          </div>
+
+          {/* FILTRO POR COLABORADOR (comissões) */}
+          {colabsCat.length>0 && (
+            <div className="pn-filters">
+              <button className={`pn-fbtn${empColabFiltro==="all"?" on":""}`} onClick={()=>setEmpColabFiltro("all")}>Todas as contas</button>
+              {colabsCat.map(nome=>(
+                <button key={nome} className={`pn-fbtn${empColabFiltro===nome?" on":""}`} onClick={()=>setEmpColabFiltro(nome)}>💼 {nome}</button>
+              ))}
+            </div>
+          )}
+
           {cat.contas.length===0 && (
             <div style={{color:"var(--muted)",fontSize:13,padding:"12px 0"}}>Nenhuma conta nessa categoria ainda.</div>
           )}
 
           <div className="cli-list">
             {cat.contas.map((ct,cti)=>{
+              if(!visivel(ct)) return null; // filtro por colaborador
               const {ini,par}=contaEff(D,ct); const val=valEff(ct,empMes);
               // Mostrar apenas contas ativas no mês selecionado
               const ativaNoMes = empMes>=ini && (par===0||(empMes-ini)<par);
@@ -1073,7 +1115,7 @@ export default function App() {
               return a+(ativo?valEff(ct,empMes):0);
             },0);
             return (
-              <div key={ci} onClick={()=>{setEmpCard(ci);setEditingConta(null);}} style={{
+              <div key={ci} onClick={()=>{setEmpCard(ci);setEditingConta(null);setEmpColabFiltro("all");}} style={{
                 background:"#fff",border:`1.5px solid ${cat.cor}33`,borderRadius:"var(--r)",
                 padding:18,cursor:"pointer",transition:"box-shadow .15s",position:"relative",
               }}
