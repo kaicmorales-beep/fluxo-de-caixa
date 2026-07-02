@@ -63,7 +63,12 @@ function contaEff(d, ct) {
     const cli = d.clientes.find(c => c.id === ct.comissao.cliId);
     const p = cli && Array.isArray(cli.produtosContratados)
       ? cli.produtosContratados.find(q => q.id === ct.comissao.prodId) : null;
-    if (p) return { ini: parseInt(p.inicio)||0, par: parseInt(p.parcelas)||0 };
+    if (p) {
+      // Duração da comissão: "auto" acompanha o produto; número = meses fixos (0 = recorrente)
+      const dur = ct.comissao.duracao;
+      const par = (dur === undefined || dur === "auto") ? (parseInt(p.parcelas)||0) : (parseInt(dur)||0);
+      return { ini: parseInt(p.inicio)||0, par };
+    }
   }
   return { ini: parseInt(ct.inicio)||0, par: parseInt(ct.parcelas)||0 };
 }
@@ -2482,6 +2487,20 @@ export default function App() {
                           <div className="cli-row-actions">
                             {par>0 && <span className="badge b-gray">{pagosN}/{par} pagas</span>}
                             <span className="badge" style={{background:"#fdf0f0",color:"var(--red)",border:"1px solid #e0b0b0"}}>{fmt(parseFloat(x.ct.valor)||0)}/mês</span>
+                            <select className="dw-in" style={{width:"auto",padding:"3px 6px",fontSize:11}} title="Duração da comissão"
+                              value={x.ct.comissao.duracao??"auto"}
+                              onChange={e=>{
+                                const v = e.target.value;
+                                updateAno(x.yr, d=>{
+                                  const ct = d.categorias[x.ci]?.contas[x.cti];
+                                  if (ct && ct.comissao){ ct.comissao.duracao = v==="auto"?"auto":(parseInt(v)||0); if(v!=="auto") ct.parcelas = parseInt(v)||0; }
+                                  return d;
+                                });
+                              }}>
+                              <option value="auto">= produto</option>
+                              {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
+                              <option value="0">recorrente</option>
+                            </select>
                             <button className="btn-rm" title="Remover comissão (sai das Despesas)" onClick={()=>{
                               if(!confirm(`Remover a comissão de ${cb.nome} sobre ${x.ct.comissao.cliNome}?`))return;
                               updateAno(x.yr, d=>{ d.categorias.forEach(cat=>{ cat.contas=cat.contas.filter(ct=>ct!==null&&!(ct.comissao&&ct.comissao.prodId===x.ct.comissao.prodId&&ct.comissao.colabId===cb.id&&ct.comissao.cliId===x.ct.comissao.cliId)); }); return d; });
@@ -2722,6 +2741,8 @@ export default function App() {
       if(!colab){alert("Selecione um colaborador.");return;}
       const v = parseFloat(comForm.valor)||0;
       if(!v){alert("Informe o valor mensal da comissão.");return;}
+      const dur = comForm.duracao ?? "auto";
+      const parcelas = dur==="auto" ? (parseInt(p.parcelas)||0) : (parseInt(dur)||0);
       updateAno(yr, d=>{
         // Lança na categoria Salários (cria se não existir)
         let gi = d.categorias.findIndex(cat=>cat.id==="salarios"||/sal[aá]rio/i.test(cat.nome));
@@ -2730,10 +2751,10 @@ export default function App() {
           nome:`Comissão ${colab.nome} — ${cli.nome}`,
           tag:"Comissão",
           valor:v,
-          inicio:parseInt(p.inicio)||0,   // mesmos meses do produto
-          parcelas:parseInt(p.parcelas)||0,
+          inicio:parseInt(p.inicio)||0,   // começa junto com o produto
+          parcelas,
           vencimento:"", status:"ativo",
-          comissao:{colabId:colab.id,colabNome:colab.nome,cliId:cli.id,cliNome:cli.nome,prodId:p.id,prodNome:p.nome},
+          comissao:{colabId:colab.id,colabNome:colab.nome,cliId:cli.id,cliNome:cli.nome,prodId:p.id,prodNome:p.nome,duracao:dur==="auto"?"auto":(parseInt(dur)||0)},
         });
         return d;
       });
@@ -2818,7 +2839,7 @@ export default function App() {
                               }}>↻ Renovar</button>
                           )}
                           <button className="btn btn-sm" title="Atrelar comissão de colaborador (lança em Despesas › Salários)"
-                            onClick={()=>setComForm(comForm?.prodId===p.id?null:{prodId:p.id, colabId:colabs[0]?.id||"", valor:""})}>💼</button>
+                            onClick={()=>setComForm(comForm?.prodId===p.id?null:{prodId:p.id, colabId:colabs[0]?.id||"", valor:"", duracao:"auto"})}>💼</button>
                           <button className="btn-rm" onClick={()=>{if(confirm(`Remover "${p.nome}" deste cliente?`))updateCli(cc=>{cc.produtosContratados=(cc.produtosContratados||[]).filter(x=>x.id!==p.id);});}}>×</button>
                         </div>
                       </div>
@@ -2847,7 +2868,12 @@ export default function App() {
                               </select></div>
                             <div className="fl" style={{width:120}}><label className="flabel">Comissão/mês (R$)</label>
                               <input className="fi" type="number" value={comForm.valor} onChange={e=>setComForm(f=>({...f,valor:e.target.value}))}/></div>
-                            <span style={{fontSize:11,color:"var(--muted)",paddingBottom:8}}>× {par===0?"recorrente":`${par} ${par===1?"mês":"meses"}`} (acompanha o produto)</span>
+                            <div className="fl" style={{width:170}}><label className="flabel">Quanto tempo</label>
+                              <select className="fi" value={comForm.duracao??"auto"} onChange={e=>setComForm(f=>({...f,duracao:e.target.value}))}>
+                                <option value="auto">= produto ({par===0?"recorrente":`${par} ${par===1?"mês":"meses"}`})</option>
+                                {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
+                                <option value="0">Recorrente (sem fim)</option>
+                              </select></div>
                             <button className="btn btn-p btn-sm" style={{marginBottom:1}} onClick={()=>atrelarComissao(p)}>Atrelar</button>
                             <button className="btn btn-sm" style={{marginBottom:1}} onClick={()=>setComForm(null)}>Cancelar</button>
                           </div>
