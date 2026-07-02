@@ -56,6 +56,18 @@ function cc(v) { return v > 50 ? "pos" : v < 0 ? "neg" : "neu"; }
 
 const N_2026 = ANOS_CONFIG[2026].length; // 9 meses (Abril-Dezembro)
 
+// Meses efetivos de uma conta: comissões seguem SEMPRE os meses atuais do produto
+// atrelado (se o produto for editado/renovado, a comissão acompanha)
+function contaEff(d, ct) {
+  if (ct && ct.comissao && ct.comissao.prodId && d && Array.isArray(d.clientes)) {
+    const cli = d.clientes.find(c => c.id === ct.comissao.cliId);
+    const p = cli && Array.isArray(cli.produtosContratados)
+      ? cli.produtosContratados.find(q => q.id === ct.comissao.prodId) : null;
+    if (p) return { ini: parseInt(p.inicio)||0, par: parseInt(p.parcelas)||0 };
+  }
+  return { ini: parseInt(ct.inicio)||0, par: parseInt(ct.parcelas)||0 };
+}
+
 function gastosEmpMes(d, ano, prevD = null) {
   const ms = ANOS_CONFIG[ano];
   const offset = ano === 2027 ? N_2026 : 0; // índice global do 1º mês do ano
@@ -66,8 +78,8 @@ function gastosEmpMes(d, ano, prevD = null) {
     // Contas do ano atual
     let soma = d.categorias.reduce((acc, cat) =>
       acc + cat.contas.reduce((a, ct) => {
-        const gIni = parseInt(ct.inicio) + offset;
-        const par = parseInt(ct.parcelas);
+        const { ini, par } = contaEff(d, ct);
+        const gIni = ini + offset;
         if (gI < gIni || (par !== 0 && (gI - gIni) >= par)) return a;
         return a + valEff(ct, i);
       }, 0), 0);
@@ -76,8 +88,8 @@ function gastosEmpMes(d, ano, prevD = null) {
     if (prevD && ano === 2027) {
       prevD.categorias.forEach(cat => {
         cat.contas.forEach(ct => {
-          const gIni = parseInt(ct.inicio); // 2026: local = global
-          const par = parseInt(ct.parcelas), val = parseFloat(ct.valor) || 0;
+          const { ini: gIni, par } = contaEff(prevD, ct); // 2026: local = global
+          const val = parseFloat(ct.valor) || 0;
           if (par === 0) return; // recorrentes são definidos por ano
           if (gI >= gIni && (gI - gIni) < par) soma += val;
         });
@@ -936,7 +948,7 @@ export default function App() {
 
     function catTotal(cat) {
       return cat.contas.reduce((a,ct)=>{
-        const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas);
+        const {ini,par}=contaEff(D,ct);
         return a+ms.reduce((acc,_,mi)=>mi>=ini&&(par===0||(mi-ini)<par)?acc+valEff(ct,mi):acc,0);
       },0);
     }
@@ -969,7 +981,7 @@ export default function App() {
 
           <div className="cli-list">
             {cat.contas.map((ct,cti)=>{
-              const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas),val=valEff(ct,empMes);
+              const {ini,par}=contaEff(D,ct); const val=valEff(ct,empMes);
               // Mostrar apenas contas ativas no mês selecionado
               const ativaNoMes = empMes>=ini && (par===0||(empMes-ini)<par);
               if(!ativaNoMes) return null;
@@ -1048,7 +1060,7 @@ export default function App() {
           {D.categorias.map((cat,ci)=>{
             const total=catTotal(cat);
             const totalMes=cat.contas.reduce((a,ct)=>{
-              const ini=parseInt(ct.inicio),par=parseInt(ct.parcelas);
+              const {ini,par}=contaEff(D,ct);
               const ativo=empMes>=ini&&(par===0||(empMes-ini)<par);
               return a+(ativo?valEff(ct,empMes):0);
             },0);
@@ -1068,7 +1080,7 @@ export default function App() {
                   {fmt(totalMes)}<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>/mês</span>
                 </div>
                 <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>
-                  {(()=>{const n=cat.contas.filter(ct=>parseInt(ct.parcelas)===0||parseInt(ct.inicio)+parseInt(ct.parcelas)>empMes).length;return `${n} conta${n!==1?"s":""}`;})()}
+                  {(()=>{const n=cat.contas.filter(ct=>{const {ini,par}=contaEff(D,ct);return par===0||ini+par>empMes;}).length;return `${n} conta${n!==1?"s":""}`;})()}
                   {cat.contas.length>0?` · ${fmt(total)}/ano`:""}
                 </div>
                 <div style={{marginTop:10,fontSize:12,color:cat.cor,fontWeight:500}}>Ver detalhes →</div>
@@ -1092,7 +1104,7 @@ export default function App() {
           D.categorias.forEach(cat=>cat.contas.forEach(ct=>{
             const tag = (ct.tag||"").trim() || "Sem categoria";
             if(!porTag[tag]) porTag[tag] = { mes:0, ano:0, n:0 };
-            const ini=parseInt(ct.inicio), par=parseInt(ct.parcelas);
+            const {ini,par}=contaEff(D,ct);
             porTag[tag].n++;
             if(empMes>=ini&&(par===0||(empMes-ini)<par)) porTag[tag].mes += valEff(ct,empMes);
             ms.forEach((_,mi)=>{ if(mi>=ini&&(par===0||(mi-ini)<par)) porTag[tag].ano += valEff(ct,mi); });
@@ -1453,7 +1465,7 @@ export default function App() {
     const despItens = [];
     (D.categorias || []).forEach((cat, ci) => {
       cat.contas.forEach((ct, cti) => {
-        const ini = parseInt(ct.inicio), par = parseInt(ct.parcelas), val = parseFloat(ct.valor) || 0;
+        const { ini, par } = contaEff(D, ct);
         if (ativo(ini, par)) {
           despItens.push({ ci, cti, nome: ct.nome, cat: cat.nome, cor: cat.cor, val: valEff(ct, mi), ovr: !!(ct.valorMes && ct.valorMes[mi]!=null), pago: !!(ct.pagos && ct.pagos[mi]) });
         }
@@ -1481,7 +1493,7 @@ export default function App() {
         if (c.status === "ativo" && cliAtivoMes(c, k)) r += cliRecebidoMes(c, k);
       });
       (D.categorias || []).forEach(cat => cat.contas.forEach(ct => {
-        const ini = parseInt(ct.inicio), par = parseInt(ct.parcelas);
+        const { ini, par } = contaEff(D, ct);
         if (k >= ini && (par === 0 || (k - ini) < par) && ct.pagos && ct.pagos[k]) dd += valEff(ct, k);
       }));
       // vendas avulsas recebidas no mês k
@@ -2398,9 +2410,11 @@ export default function App() {
       }));
     });
 
-    const ativa = (ct,mi)=>{const ini=parseInt(ct.inicio)||0,par=parseInt(ct.parcelas)||0;return mi>=ini&&(par===0||(mi-ini)<par);};
+    const dataDoAno = (yr) => yr===2026 ? data26 : data27;
+    const effDe = (x) => contaEff(dataDoAno(x.yr), x.ct); // comissão segue os meses do produto
+    const ativa = (x,mi)=>{const {ini,par}=effDe(x);return mi>=ini&&(par===0||(mi-ini)<par);};
     const ymLabel = (yr, idx) => { const base=yr===2026?3:0; const d=new Date(yr, base+(parseInt(idx)||0),1); return `${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`; };
-    const totalAnoColab = (list) => ms.reduce((a,_,mi)=>a+list.filter(x=>x.yr===ano&&ativa(x.ct,mi)).reduce((s,x)=>s+valEff(x.ct,mi),0),0);
+    const totalAnoColab = (list) => ms.reduce((a,_,mi)=>a+list.filter(x=>x.yr===ano&&ativa(x,mi)).reduce((s,x)=>s+valEff(x.ct,mi),0),0);
     const totalAnoGeral = totalAnoColab(comissoes);
     const togglePago = (x, mi) => updateAno(x.yr, d=>{
       const ct = d.categorias[x.ci]?.contas[x.cti];
@@ -2457,7 +2471,7 @@ export default function App() {
                   {/* Comissões (cliente · produto · período) */}
                   <div className="cli-list compact" style={{marginBottom:12}}>
                     {minhas.map((x,i)=>{
-                      const par=parseInt(x.ct.parcelas)||0, ini=parseInt(x.ct.inicio)||0;
+                      const {ini,par} = effDe(x);
                       const pagosN = Object.values(x.ct.pagos||{}).filter(Boolean).length;
                       return (
                         <div className="cli-row" key={i}>
@@ -2485,7 +2499,7 @@ export default function App() {
                       <thead><tr><th style={{textAlign:"left"}}>Mês</th><th>Total</th><th style={{textAlign:"left"}}>Clientes (clique para marcar pago)</th></tr></thead>
                       <tbody>
                         {ms.map((m,mi)=>{
-                          const doMes = minhas.filter(x=>x.yr===ano&&ativa(x.ct,mi));
+                          const doMes = minhas.filter(x=>x.yr===ano&&ativa(x,mi));
                           if (doMes.length===0) return null;
                           const tot = doMes.reduce((a,x)=>a+valEff(x.ct,mi),0);
                           const tudoPago = doMes.every(x=>x.ct.pagos&&x.ct.pagos[mi]);
