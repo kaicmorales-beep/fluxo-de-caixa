@@ -67,7 +67,10 @@ function contaEff(d, ct) {
       // Duração da comissão: "auto" acompanha o produto; número = meses fixos (0 = recorrente)
       const dur = ct.comissao.duracao;
       const par = (dur === undefined || dur === "auto") ? (parseInt(p.parcelas)||0) : (parseInt(dur)||0);
-      return { ini: parseInt(p.inicio)||0, par };
+      // Início: "auto" acompanha o produto; número = mês fixo escolhido pelo usuário
+      const iniC = ct.comissao.inicioCustom;
+      const ini = (iniC === undefined || iniC === "auto") ? (parseInt(p.inicio)||0) : (parseInt(iniC)||0);
+      return { ini, par };
     }
   }
   return { ini: parseInt(ct.inicio)||0, par: parseInt(ct.parcelas)||0 };
@@ -2487,6 +2490,14 @@ export default function App() {
                           <div className="cli-row-actions">
                             {par>0 && <span className="badge b-gray">{pagosN}/{par} pagas</span>}
                             <span className="badge" style={{background:"#fdf0f0",color:"var(--red)",border:"1px solid #e0b0b0"}}>{fmt(parseFloat(x.ct.valor)||0)}/mês</span>
+                            <input className="dw-in" type="month" style={{width:130,padding:"3px 6px",fontSize:11}} title="Mês de início da comissão"
+                              value={(()=>{const base=x.yr===2026?3:0;const d0=new Date(x.yr, base+ini, 1);return `${d0.getFullYear()}-${String(d0.getMonth()+1).padStart(2,"0")}`;})()}
+                              onChange={e=>{
+                                if(!e.target.value) return;
+                                const [Y,M]=e.target.value.split("-").map(Number);
+                                const idx=(Y-x.yr)*12+(M-1)-(x.yr===2026?3:0);
+                                updateAno(x.yr, d=>{const ct=d.categorias[x.ci]?.contas[x.cti]; if(ct&&ct.comissao){ct.comissao.inicioCustom=idx; ct.inicio=idx;} return d;});
+                              }}/>
                             <select className="dw-in" style={{width:"auto",padding:"3px 6px",fontSize:11}} title="Duração da comissão"
                               value={x.ct.comissao.duracao??"auto"}
                               onChange={e=>{
@@ -2743,6 +2754,10 @@ export default function App() {
       if(!v){alert("Informe o valor mensal da comissão.");return;}
       const dur = comForm.duracao ?? "auto";
       const parcelas = dur==="auto" ? (parseInt(p.parcelas)||0) : (parseInt(dur)||0);
+      // Mês de início escolhido: se for o mesmo do produto, segue o produto ("auto")
+      const iniProd = parseInt(p.inicio)||0;
+      const iniEscolhido = comForm.inicioYM ? ymToIdx(comForm.inicioYM) : iniProd;
+      const inicioCustom = iniEscolhido === iniProd ? "auto" : iniEscolhido;
       updateAno(yr, d=>{
         // Lança na categoria Salários (cria se não existir)
         let gi = d.categorias.findIndex(cat=>cat.id==="salarios"||/sal[aá]rio/i.test(cat.nome));
@@ -2751,10 +2766,10 @@ export default function App() {
           nome:`Comissão ${colab.nome} — ${cli.nome}`,
           tag:"Comissão",
           valor:v,
-          inicio:parseInt(p.inicio)||0,   // começa junto com o produto
+          inicio:iniEscolhido,
           parcelas,
           vencimento:"", status:"ativo",
-          comissao:{colabId:colab.id,colabNome:colab.nome,cliId:cli.id,cliNome:cli.nome,prodId:p.id,prodNome:p.nome,duracao:dur==="auto"?"auto":(parseInt(dur)||0)},
+          comissao:{colabId:colab.id,colabNome:colab.nome,cliId:cli.id,cliNome:cli.nome,prodId:p.id,prodNome:p.nome,duracao:dur==="auto"?"auto":(parseInt(dur)||0),inicioCustom},
         });
         return d;
       });
@@ -2839,7 +2854,7 @@ export default function App() {
                               }}>↻ Renovar</button>
                           )}
                           <button className="btn btn-sm" title="Atrelar comissão de colaborador (lança em Despesas › Salários)"
-                            onClick={()=>setComForm(comForm?.prodId===p.id?null:{prodId:p.id, colabId:colabs[0]?.id||"", valor:"", duracao:"auto"})}>💼</button>
+                            onClick={()=>setComForm(comForm?.prodId===p.id?null:{prodId:p.id, colabId:colabs[0]?.id||"", valor:"", duracao:"auto", inicioYM: ymStr(idxToDate(parseInt(p.inicio)||0))})}>💼</button>
                           <button className="btn-rm" onClick={()=>{if(confirm(`Remover "${p.nome}" deste cliente?`))updateCli(cc=>{cc.produtosContratados=(cc.produtosContratados||[]).filter(x=>x.id!==p.id);});}}>×</button>
                         </div>
                       </div>
@@ -2868,6 +2883,8 @@ export default function App() {
                               </select></div>
                             <div className="fl" style={{width:120}}><label className="flabel">Comissão/mês (R$)</label>
                               <input className="fi" type="number" value={comForm.valor} onChange={e=>setComForm(f=>({...f,valor:e.target.value}))}/></div>
+                            <div className="fl" style={{width:150}}><label className="flabel">Começa em</label>
+                              <input className="fi" type="month" value={comForm.inicioYM||""} onChange={e=>setComForm(f=>({...f,inicioYM:e.target.value||f.inicioYM}))}/></div>
                             <div className="fl" style={{width:170}}><label className="flabel">Quanto tempo</label>
                               <select className="fi" value={comForm.duracao??"auto"} onChange={e=>setComForm(f=>({...f,duracao:e.target.value}))}>
                                 <option value="auto">= produto ({par===0?"recorrente":`${par} ${par===1?"mês":"meses"}`})</option>
