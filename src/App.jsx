@@ -827,6 +827,12 @@ export default function App() {
   const av26Arr = avulsasMesArr(2026);
   const avAnoAtual = avulsasDoAno(ano);
   const avArr = ano===2026 ? av26Arr : avulsasMesArr(2027);
+  // Marca uma venda avulsa como recebida/não recebida (controle de cobrança)
+  const toggleAvulsaRecebida = (a) => {
+    const cr = getCrm(a.cliId);
+    const upd = (cr.produtosVendidos||[]).map(p=>p.id===a.venda.id?{...p, recebido:!p.recebido}:p);
+    updateCrm(a.cliId, {produtosVendidos: upd});
+  };
 
   const carry26 = data26 ? calcFlow(data26, 2026, null, null, av26Arr) : null;
   const carryover = ano === 2027 && carry26 ? carry26[carry26.length-1].caixa : null;
@@ -1234,6 +1240,36 @@ export default function App() {
             })}
           </div>
 
+          {/* VENDAS AVULSAS DO MÊS — nome do cliente + produto, com controle de recebido */}
+          {(()=>{
+            const idsGrupo = new Set(items.map(c=>c.id));
+            const avs = avAnoAtual.filter(a=>a.mi===atvMes && idsGrupo.has(a.cliId));
+            if (avs.length===0) return null;
+            const nRec = avs.filter(a=>a.recebido).length;
+            return (
+              <>
+                <div className="sec-label">🛒 Vendas avulsas em {ms[atvMes]} · {nRec}/{avs.length} recebidas · {fmt(avs.reduce((x,a)=>x+a.valor,0))}</div>
+                <div className="cli-list compact">
+                  {avs.map(a=>(
+                    <div className="cli-row" key={"av"+a.venda.id}>
+                      <div className="cli-row-main">
+                        <span className="cli-row-nome">{a.cliNome}</span>
+                        <span className="cli-row-sub">🛒 {a.venda.nome} · venda avulsa</span>
+                      </div>
+                      <div className="cli-row-actions">
+                        <span className="badge b-g" style={{cursor:"pointer"}} title="Abrir produtos do cliente" onClick={()=>setProdCliId(a.cliId)}>{fmt(a.valor)}</span>
+                        <button className={`pill-tog ${a.recebido?"on":"off"}`} title={`Marcar como ${a.recebido?"não recebido":"recebido"}`}
+                          onClick={()=>toggleAvulsaRecebida(a)}>
+                          {a.recebido?"✓ Recebido":"Não recebido"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+
           {/* MODAL DE EDIÇÃO (80% da tela) */}
           {editingIdx!==null && D.clientes[editingIdx] && (
             <div className="edit-modal-ov" onClick={e=>{if(e.target===e.currentTarget)setEditingIdx(null);}}>
@@ -1399,11 +1435,6 @@ export default function App() {
     const avMesItens = avAnoAtual.filter(a => a.mi === mi);
     const avPrev = avMesItens.reduce((a,x)=>a+x.valor,0);
     const avReal = avMesItens.filter(x=>x.recebido).reduce((a,x)=>a+x.valor,0);
-    const toggleAvRecebido = (a) => {
-      const cr = getCrm(a.cliId);
-      const upd = (cr.produtosVendidos||[]).map(p=>p.id===a.venda.id?{...p, recebido:!p.recebido}:p);
-      updateCrm(a.cliId, {produtosVendidos: upd});
-    };
 
     const recPrev = recItens.reduce((a, r) => a + r.val, 0) + avPrev;
     const recReal = recItens.filter(r => r.recebido).reduce((a, r) => a + r.val, 0) + avReal;
@@ -1527,7 +1558,7 @@ export default function App() {
                         <span className="cli-row-sub">🛒 {a.venda.nome}</span>
                       </div>
                       <span className="badge b-g" style={{cursor:"pointer"}} title="Abrir produtos do cliente" onClick={()=>setProdCliId(a.cliId)}>{fmt(a.valor)}</span>
-                      <button className={`pill-tog ${a.recebido?"on":"off"}`} onClick={()=>toggleAvRecebido(a)}>
+                      <button className={`pill-tog ${a.recebido?"on":"off"}`} onClick={()=>toggleAvulsaRecebida(a)}>
                         {a.recebido?"✓ Recebido":"Não recebido"}
                       </button>
                     </div>
@@ -2803,6 +2834,10 @@ export default function App() {
                       </div>
                       <div className="cli-row-actions">
                         <span className="badge b-g">{fmt(parseFloat(p.valor)||0)}</span>
+                        <button className={`pill-tog ${p.recebido?"on":"off"}`} title={`Marcar como ${p.recebido?"não recebido":"recebido"}`}
+                          onClick={()=>updateCrm(cliId,{produtosVendidos:avulsas.map(x=>x.id===p.id?{...x,recebido:!x.recebido}:x)})}>
+                          {p.recebido?"✓ Recebido":"Não recebido"}
+                        </button>
                         <button className="btn-rm" onClick={()=>{if(confirm("Remover esta venda?"))updateCrm(cliId,{produtosVendidos:avulsas.filter(x=>x.id!==p.id)});}}>×</button>
                       </div>
                     </div>
