@@ -2358,12 +2358,21 @@ export default function App() {
     const crm = getCrm(cliId);
     const avulsas = crm.produtosVendidos || [];
     const hojeISO = new Date().toISOString().slice(0,10);
-    const [formP, setFormP] = useState({produtoId:"", valor:"", inicio:0, parcelas:0});
+    const [formP, setFormP] = useState({produtoId:"", valor:"", inicioYM: hojeISO.slice(0,7), parcelas:0});
     const [formA, setFormA] = useState({produtoId:"", valor:"", data:hojeISO});
     if (!found) return null;
     const { yr, c: cli } = found;
     const msAno = ANOS_CONFIG[yr];
     const contratados = cli.produtosContratados || [];
+
+    // Conversão índice de mês ⇆ mês/ano real (2026 começa em Abril → base 3).
+    // Índices negativos = início retroativo (antes da janela do fluxo): os meses
+    // passados contam no LTV e consomem a duração do produto.
+    const base = yr===2026 ? 3 : 0;
+    const idxToDate = (idx) => new Date(yr, base + (parseInt(idx)||0), 1);
+    const ymStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    const ymToIdx = (ym) => { const [Y,M] = ym.split("-").map(Number); return (Y - yr)*12 + (M-1) - base; };
+    const fmtYM = (d) => `${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
     const totalMesAtual = contratados.length ? msAno.map((_,mi)=>cliValMes(cli,mi)) : null;
     const totalAvulsas = avulsas.reduce((a,p)=>a+(parseFloat(p.valor)||0),0);
 
@@ -2407,16 +2416,32 @@ export default function App() {
               : <div className="cli-list compact">
                   {contratados.map(p=>{
                     const par = parseInt(p.parcelas)||0;
+                    const iniIdx = parseInt(p.inicio)||0;
+                    const iniDate = idxToDate(iniIdx);
+                    const fimDate = par>0 ? new Date(iniDate.getFullYear(), iniDate.getMonth()+par-1, 1) : null;
+                    const mut = (fn) => updateCli(cc=>{const x=(cc.produtosContratados||[]).find(q=>q.id===p.id); if(x) fn(x);});
                     return (
-                      <div className="cli-row" key={p.id}>
-                        <div className="cli-row-main">
+                      <div className="cli-row" key={p.id} style={{flexWrap:"wrap",rowGap:6}}>
+                        <div className="cli-row-main" style={{minWidth:130}}>
                           <span className="cli-row-nome">{p.nome}</span>
-                          <span className="cli-row-sub">
-                            início {msAno[parseInt(p.inicio)||0]||"?"}/{yr} · {par===0?"recorrente":`${par} ${par===1?"mês":"meses"}`}
-                          </span>
+                          {iniIdx<0 && <span className="badge b-w" title="Começou antes da janela do fluxo — os meses retroativos contam no LTV e consomem a duração">retroativo</span>}
                         </div>
-                        <div className="cli-row-actions">
-                          <span className="badge b-g">{fmt(parseFloat(p.valor)||0)}/mês</span>
+                        <div className="cli-row-actions" style={{flexWrap:"wrap",rowGap:6}}>
+                          <label style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--muted)"}}>R$
+                            <input className="dw-in" type="number" style={{width:90,padding:"4px 7px",fontSize:12,fontFamily:"var(--mono)"}}
+                              value={p.valor} onChange={e=>mut(x=>{x.valor=parseFloat(e.target.value)||0;})}/>
+                          </label>
+                          <label style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--muted)"}}>Início
+                            <input className="dw-in" type="month" style={{width:135,padding:"4px 7px",fontSize:12}}
+                              value={ymStr(iniDate)}
+                              onChange={e=>{ if(!e.target.value) return; mut(x=>{x.inicio=ymToIdx(e.target.value);}); }}/>
+                          </label>
+                          <select className="dw-in" style={{width:"auto",padding:"4px 7px",fontSize:12}}
+                            value={par} onChange={e=>mut(x=>{x.parcelas=parseInt(e.target.value);})}>
+                            {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
+                            <option value={0}>Recorrente</option>
+                          </select>
+                          <span className="cli-row-sub" style={{minWidth:86}}>{fimDate?`até ${fmtYM(fimDate)}`:"sem fim"}</span>
                           <button className="btn-rm" onClick={()=>{if(confirm(`Remover "${p.nome}" deste cliente?`))updateCli(cc=>{cc.produtosContratados=(cc.produtosContratados||[]).filter(x=>x.id!==p.id);});}}>×</button>
                         </div>
                       </div>
@@ -2436,10 +2461,8 @@ export default function App() {
                     </select></div>
                   <div className="fl"><label className="flabel">Valor mensal (R$)</label>
                     <input className="fi" type="number" value={formP.valor} onChange={e=>setFormP(f=>({...f,valor:e.target.value}))}/></div>
-                  <div className="fl"><label className="flabel">Mês de início ({yr})</label>
-                    <select className="fi" value={formP.inicio} onChange={e=>setFormP(f=>({...f,inicio:parseInt(e.target.value)}))}>
-                      {msAno.map((m,i)=><option key={i} value={i}>{m}</option>)}
-                    </select></div>
+                  <div className="fl"><label className="flabel">Mês de início (pode ser retroativo)</label>
+                    <input className="fi" type="month" value={formP.inicioYM} onChange={e=>setFormP(f=>({...f,inicioYM:e.target.value||f.inicioYM}))}/></div>
                   <div className="fl"><label className="flabel">Quanto tempo</label>
                     <select className="fi" value={formP.parcelas} onChange={e=>setFormP(f=>({...f,parcelas:parseInt(e.target.value)}))}>
                       {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
@@ -2449,7 +2472,7 @@ export default function App() {
                 <button className="btn btn-p" style={{alignSelf:"flex-start"}} onClick={()=>{
                   const p = catalogo.find(x=>x.id===formP.produtoId);
                   if(!p){alert("Selecione um produto.");return;}
-                  const item = {id:"cp_"+Date.now(), produtoId:p.id, nome:p.nome, valor:parseFloat(formP.valor)||0, inicio:formP.inicio, parcelas:formP.parcelas};
+                  const item = {id:"cp_"+Date.now(), produtoId:p.id, nome:p.nome, valor:parseFloat(formP.valor)||0, inicio:ymToIdx(formP.inicioYM), parcelas:formP.parcelas};
                   updateCli(cc=>{cc.produtosContratados=[...(cc.produtosContratados||[]), item];});
                   showToast(`${p.nome} contratado por ${cli.nome}!`);
                 }}>+ Adicionar produto</button>
