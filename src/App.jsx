@@ -981,7 +981,8 @@ export default function App() {
                 <div className="cli-row" key={cti}>
                   <div className="cli-row-main">
                     <span className="cli-row-nome">{ct.nome}</span>
-                    {ct.tag && <span className="badge b-gray" style={{flexShrink:0}}>{ct.tag}</span>}
+                    {ct.comissao && <span className="badge" style={{background:"#f5eefb",color:"#8e44ad",flexShrink:0}} title={`Comissão de ${ct.comissao.colabNome} · cliente ${ct.comissao.cliNome} · produto ${ct.comissao.prodNome}`}>💼 comissão</span>}
+                    {ct.tag && !ct.comissao && <span className="badge b-gray" style={{flexShrink:0}}>{ct.tag}</span>}
                     <span className="cli-row-sub">
                       {par===0?"Fixa":`${atual}/${par}`}{ct.vencimento?` · vence dia ${ct.vencimento}`:""}
                     </span>
