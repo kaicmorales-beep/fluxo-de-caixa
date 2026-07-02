@@ -241,14 +241,15 @@ async function loadKanbanFromDB(userId) {
     .eq("user_id", userId)
     .eq("ano", 0)
     .single();
-  if (error || !data) return { leads: [], crm: {}, categoriasAnalise: [] };
+  if (error || !data) return { leads: [], crm: {}, categoriasAnalise: [], produtos: [] };
   try {
     const d = data.dados;
     if (!Array.isArray(d.leads)) d.leads = [];
     if (!d.crm || typeof d.crm !== "object") d.crm = {};
     if (!Array.isArray(d.categoriasAnalise)) d.categoriasAnalise = [];
+    if (!Array.isArray(d.produtos)) d.produtos = [];
     return d;
-  } catch { return { leads: [], crm: {}, categoriasAnalise: [] }; }
+  } catch { return { leads: [], crm: {}, categoriasAnalise: [], produtos: [] }; }
 }
 
 // ── STYLES ───────────────────────────────────────────────────
@@ -630,6 +631,7 @@ export default function App() {
   const [painelHistText, setPainelHistText] = useState("");
   const [menuOpen, setMenuOpen] = useState(true); // menu lateral aberto/recolhido
   const [ltvFiltro, setLtvFiltro] = useState("todos"); // todos | ativos | inativos
+  const [prodCliId, setProdCliId] = useState(null); // id do cliente com modal de produtos aberto
   const [resumoMes, setResumoMes] = useState(0); // mês selecionado no resumo
   const [selRec, setSelRec] = useState({}); // receitas selecionadas p/ enviar ao contador (id->true)
   const [resumoCatRec, setResumoCatRec] = useState("all"); // filtro de grupo de receita no resumo
@@ -692,7 +694,7 @@ export default function App() {
   const saveKanbanData = useCallback(async (kdata) => {
     if (!session) return;
     try {
-      await saveToDB(session.user.id, 0, { leads: kdata.leads || [], crm: kdata.crm || {}, categoriasAnalise: kdata.categoriasAnalise || [] });
+      await saveToDB(session.user.id, 0, { leads: kdata.leads || [], crm: kdata.crm || {}, categoriasAnalise: kdata.categoriasAnalise || [], produtos: kdata.produtos || [] });
     } catch (err) {
       console.error("[fluxo-caixa] Erro ao salvar kanban:", err?.message || err);
     }
@@ -700,7 +702,7 @@ export default function App() {
 
   function updateKanban(updater) {
     setDataKanban(prev => {
-      const next = updater(JSON.parse(JSON.stringify(prev || { leads: [], crm: {}, categoriasAnalise: [] })));
+      const next = updater(JSON.parse(JSON.stringify(prev || { leads: [], crm: {}, categoriasAnalise: [], produtos: [] })));
       saveKanbanData(next);
       return next;
     });
@@ -779,11 +781,13 @@ export default function App() {
 
   // ── RENDER TABS (menu lateral) ─────────────────────────────
   const tabs = [
-    {id:"fluxo",   label:"Fluxo",    icon:"📊"},
-    {id:"empresa", label:"Despesas", icon:"💸"},
-    {id:"ativos",  label:"Receitas", icon:"💰"},
-    {id:"ltv",     label:"LTV",      icon:"📈"},
-    {id:"kanban",  label:"Kanban",   icon:"📋"},
+    {id:"fluxo",      label:"Fluxo",      icon:"📊"},
+    {id:"empresa",    label:"Despesas",   icon:"💸"},
+    {id:"ativos",     label:"Receitas",   icon:"💰"},
+    {id:"ltv",        label:"LTV",        icon:"📈"},
+    {id:"kanban",     label:"Kanban",     icon:"📋"},
+    {id:"produtos",   label:"Produtos",   icon:"🛒"},
+    {id:"categorias", label:"Categorias", icon:"🏷️"},
   ];
 
   // Categorias de análise já usadas nas contas (sugestões para o campo)
@@ -1006,26 +1010,6 @@ export default function App() {
           const cores=["#c0392b","#d67e20","#8e44ad","#1a5fa0","#1a7a4a","#806020","#305090"];
           update(d=>{d.categorias.push({id:"cat_"+Date.now(),nome:nome.trim(),cor:cores[d.categorias.length%cores.length],contas:[]});return d;});
         }}>+ Novo grupo</button>
-
-        {/* CONFIGURAÇÃO DAS CATEGORIAS DE ANÁLISE */}
-        <div className="sec-label">Categorias de análise ⚙️</div>
-        <div style={{fontSize:12,color:"var(--muted)",marginBottom:8}}>Categorias usadas para classificar as contas de qualquer grupo. Clique numa categoria para removê-la da lista.</div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:4}}>
-          {(dataKanban?.categoriasAnalise||[]).map(t=>(
-            <span key={t} className="pn-sem" style={{background:"#eef4fb",color:"#1a4a7a",cursor:"pointer"}} title="Clique para remover da lista"
-              onClick={()=>{if(confirm(`Remover a categoria "${t}" da lista? (as contas já classificadas não são alteradas)`))updateKanban(d=>{d.categoriasAnalise=(d.categoriasAnalise||[]).filter(x=>x!==t);return d;});}}>
-              {t} ✕
-            </span>
-          ))}
-          {tagsDespesa.filter(t=>!(dataKanban?.categoriasAnalise||[]).includes(t)).map(t=>(
-            <span key={"u"+t} className="pn-sem" style={{background:"var(--surface)",color:"var(--muted)"}} title="Em uso nas contas (não configurada)">{t}</span>
-          ))}
-          <button className="btn btn-sm" onClick={()=>{
-            const nome=prompt("Nome da nova categoria de análise:");
-            if(!nome||!nome.trim())return;
-            updateKanban(d=>{const arr=d.categoriasAnalise||[];if(!arr.includes(nome.trim()))d.categoriasAnalise=[...arr,nome.trim()].sort();return d;});
-          }}>+ Nova categoria</button>
-        </div>
 
         {/* GASTOS POR CATEGORIA (análise) */}
         {(()=>{
@@ -1762,24 +1746,30 @@ export default function App() {
 
     const rows = entradas.map(({c, yr}) => {
       const crm = getCrm(c.id);
-      // Início do contrato: data informada no card (CRM) ou derivada do cadastro da receita
-      const diRaw = crm.dataEntrada ? new Date(crm.dataEntrada+"T00:00:00") : defInicio(c, yr);
-      const di = isNaN(diRaw) ? defInicio(c, yr) : diRaw;
       const par = parseInt(c.parcelas)||0;
-      // Término = início + parcelas (bate com o cronograma da receita); recorrente não vence
-      const fim = par>0 ? addM(di, par-1) : null;
-      // Meses decorridos do início até o mês atual (inclusive), limitado ao contrato
-      let meses = mIdx(hoje) - mIdx(di) + 1;
-      if (meses < 0) meses = 0;
-      const mesesAtivos = par===0 ? meses : Math.min(meses, par);
+      // Término SEMPRE derivado do cadastro da receita (bate com a aba Receitas):
+      // mês de início cadastrado + nº de parcelas. Recorrente não vence.
+      const iniCadastro = defInicio(c, yr);
+      const fim = par>0 ? addM(iniCadastro, par-1) : null;
+      // Início do cliente: data manual (CRM) — pode ser anterior ao cadastro e aumenta o LTV.
+      // Sem data manual, usa o próprio início do cadastro.
+      const diRaw = crm.dataEntrada ? new Date(crm.dataEntrada+"T00:00:00") : iniCadastro;
+      const di = isNaN(diRaw) ? iniCadastro : diRaw;
+      // Meses do início até o mês atual (inclusive) — ou até o término, se já passou
+      const ate = fim && mIdx(fim) < mIdx(hoje) ? fim : hoje;
+      let mesesAtivos = mIdx(ate) - mIdx(di) + 1;
+      if (mesesAtivos < 0) mesesAtivos = 0;
       const valor = parseFloat(c.valor)||0;
-      const ltv = mesesAtivos * valor;
+      // Produtos vendidos para este cliente somam no LTV
+      const produtosVendidos = crm.produtosVendidos || [];
+      const prodTotal = produtosVendidos.reduce((a,p)=>a+(parseFloat(p.valor)||0),0);
+      const ltv = mesesAtivos * valor + prodTotal;
       const ltvContrato = par===0 ? null : par * valor; // valor total previsto do contrato
       const mesesRestantes = fim ? mIdx(fim) - mIdx(hoje) : null; // null = recorrente
       const encerrado = fim ? mesesRestantes < 0 : false;
       // Semáforo de renovação: vermelho = vence este mês | amarelo = vence em até 2 meses
       const venc = !fim ? "none" : mesesRestantes < 0 ? "past" : mesesRestantes === 0 ? "vermelho" : mesesRestantes <= 2 ? "amarelo" : "ok";
-      return { c, yr, crm, di, fim, mesesAtivos, mesesRestantes, valor, ltv, ltvContrato, encerrado, venc };
+      return { c, yr, crm, di, fim, mesesAtivos, mesesRestantes, valor, prodTotal, nProd: produtosVendidos.length, ltv, ltvContrato, encerrado, venc };
     });
 
     const view = rows.filter(r => {
@@ -1819,6 +1809,7 @@ export default function App() {
           <div className="card"><div className="stat-lbl">Ticket médio</div><div className="stat-val">{fmt(ticketMedio)}</div><div className="stat-sub">mensal · ativos</div></div>
           <div className="card"><div className="stat-lbl">Tempo médio</div><div className="stat-val">{tempoMedio.toFixed(1)}</div><div className="stat-sub">meses de contrato</div></div>
           <div className="card"><div className="stat-lbl">Receita mensal ativa</div><div className="stat-val pos">{fmt(mrrAtivo)}</div><div className="stat-sub">soma dos ativos</div></div>
+          <div className="card"><div className="stat-lbl">Produtos vendidos</div><div className="stat-val pos">{fmt(rows.reduce((a,r)=>a+r.prodTotal,0))}</div><div className="stat-sub">{rows.reduce((a,r)=>a+r.nProd,0)} venda(s) · soma no LTV</div></div>
           <div className="card" style={aRenovar?{borderColor:"#e0c880",background:"var(--warn-bg)"}:{}}><div className="stat-lbl">A renovar</div><div className="stat-val" style={{color:aRenovar?"var(--warn)":"var(--text)"}}>{aRenovar}</div><div className="stat-sub">vencendo em até 2 meses</div></div>
         </div>
 
@@ -1853,6 +1844,7 @@ export default function App() {
                     <div style={{fontSize:22,fontWeight:700,fontFamily:"var(--mono)",color:"#1a6e1a"}}>{fmt(r.ltv)}</div>
                     <div style={{fontSize:11,color:"var(--muted)"}}>
                       {fmt(r.valor)}/mês × {r.mesesAtivos} {r.mesesAtivos===1?"mês":"meses"}
+                      {r.prodTotal>0 && <> + <strong style={{color:"#1a6e1a"}}>{fmt(r.prodTotal)}</strong> em produtos</>}
                       {r.ltvContrato!=null && <> · contrato: {fmt(r.ltvContrato)}</>}
                     </div>
                     <div style={{fontSize:11,color:r.venc==="vermelho"?"var(--red)":r.venc==="amarelo"?"var(--warn)":"var(--muted)",fontWeight:r.venc==="vermelho"||r.venc==="amarelo"?600:400}}>
@@ -1864,8 +1856,13 @@ export default function App() {
                         value={crmDataISO(r)}
                         onChange={e=>updateCrm(r.c.id, {dataEntrada: e.target.value})}/>
                     </div>
-                    <button className="btn btn-sm" style={{alignSelf:"flex-start",marginTop:2}}
-                      onClick={()=>{setPainelDrawerId(r.c.id);setPainelHistText("");}}>Ver detalhes →</button>
+                    <div style={{display:"flex",gap:6,marginTop:2}}>
+                      <button className="btn btn-p btn-sm" onClick={()=>setProdCliId(r.c.id)}>
+                        🛒 + Produto{r.nProd>0?` (${r.nProd})`:""}
+                      </button>
+                      <button className="btn btn-sm"
+                        onClick={()=>{setPainelDrawerId(r.c.id);setPainelHistText("");}}>Ver detalhes →</button>
+                    </div>
                   </div>
                 );
               })}
@@ -1882,6 +1879,7 @@ export default function App() {
                   <th style={{textAlign:"center"}}>Término</th>
                   <th>Meses</th>
                   <th>Valor mensal</th>
+                  <th>Produtos</th>
                   <th>LTV acumulado</th>
                   <th>LTV contrato</th>
                   <th style={{textAlign:"center"}}>Status</th>
@@ -1898,6 +1896,7 @@ export default function App() {
                       </td>
                       <td className="td-n">{r.mesesAtivos}</td>
                       <td className="td-n">{fmt(r.valor)}</td>
+                      <td className="td-n pos">{r.prodTotal>0?fmt(r.prodTotal):"—"}</td>
                       <td className="td-s pos">{fmt(r.ltv)}</td>
                       <td className="td-n">{r.ltvContrato!=null?fmt(r.ltvContrato):"recorrente"}</td>
                       <td className="pn-td">{r.encerrado?<span className="badge b-gray">Encerrado</span>:<span className={`badge ${SBADGE[r.c.status]||"b-gray"}`}>{SLBL[r.c.status]||r.c.status}</span>}</td>
@@ -1908,6 +1907,7 @@ export default function App() {
                     <td/><td/><td/>
                     <td className="td-n" style={{fontWeight:600}}>{view.reduce((a,r)=>a+r.mesesAtivos,0)}</td>
                     <td className="td-n" style={{fontWeight:600}}>{fmt(view.reduce((a,r)=>a+r.valor,0))}</td>
+                    <td className="td-n pos" style={{fontWeight:600}}>{fmt(view.reduce((a,r)=>a+r.prodTotal,0))}</td>
                     <td className="td-s pos" style={{fontWeight:700}}>{fmt(view.reduce((a,r)=>a+r.ltv,0))}</td>
                     <td className="td-n" style={{fontWeight:600}}>{fmt(view.reduce((a,r)=>a+(r.ltvContrato||0),0))}</td>
                     <td/>
@@ -1944,6 +1944,8 @@ export default function App() {
     if (activeTab === "ativos") return renderAtivos();
     if (activeTab === "ltv") return renderLTV();
     if (activeTab === "kanban") return renderKanban();
+    if (activeTab === "produtos") return <ProdutosTab />;
+    if (activeTab === "categorias") return renderCategorias();
   }
 
   // Inline form components to access outer state via closure
@@ -1965,7 +1967,7 @@ export default function App() {
                 <option value="">— selecione —</option>
                 {catsAnalise.map(t=><option key={t} value={t}>{t}</option>)}
               </select>
-              <span style={{fontSize:10,color:"var(--muted)"}}>Configure as categorias na aba Despesas</span></div>
+              <span style={{fontSize:10,color:"var(--muted)"}}>Configure as categorias no menu Categorias 🏷️</span></div>
             <div className="fl"><label className="flabel">Valor (R$)</label><input className="fi" type="number" value={form.valor} onChange={e=>setForm(p=>({...p,valor:e.target.value}))} placeholder="500"/></div>
             <div className="fl"><label className="flabel">Mês de início</label>
               <select className="fi" value={form.inicio} onChange={e=>setForm(p=>({...p,inicio:parseInt(e.target.value)}))}>
@@ -2169,6 +2171,196 @@ export default function App() {
             showToast("Salvo!");
           }}>Salvar</button>
           <button className="btn" onClick={onDone}>Cancelar</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── CATEGORIAS DE ANÁLISE (config) ─────────────────────────
+  function renderCategorias() {
+    const configuradas = dataKanban?.categoriasAnalise || [];
+    const emUso = tagsDespesa.filter(t=>!configuradas.includes(t));
+    return (
+      <>
+        <div className="pg-title">Categorias de análise 🏷️</div>
+        <div className="pg-sub">Categorias usadas para classificar as contas de despesa de qualquer grupo. Elas alimentam o painel "Gastos por categoria" da aba Despesas.</div>
+
+        <div className="form-wrap">
+          <div className="sec-label" style={{marginTop:0}}>Configuradas ({configuradas.length})</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:6}}>
+            {configuradas.length===0 && <span style={{fontSize:13,color:"var(--muted)",fontStyle:"italic"}}>Nenhuma categoria configurada ainda.</span>}
+            {configuradas.map(t=>(
+              <span key={t} className="pn-sem" style={{background:"#eef4fb",color:"#1a4a7a",cursor:"pointer"}} title="Clique para remover da lista"
+                onClick={()=>{if(confirm(`Remover a categoria "${t}" da lista? (as contas já classificadas não são alteradas)`))updateKanban(d=>{d.categoriasAnalise=(d.categoriasAnalise||[]).filter(x=>x!==t);return d;});}}>
+                {t} ✕
+              </span>
+            ))}
+            <button className="btn btn-p btn-sm" onClick={()=>{
+              const nome=prompt("Nome da nova categoria de análise:");
+              if(!nome||!nome.trim())return;
+              updateKanban(d=>{const arr=d.categoriasAnalise||[];if(!arr.includes(nome.trim()))d.categoriasAnalise=[...arr,nome.trim()].sort();return d;});
+            }}>+ Nova categoria</button>
+          </div>
+          {emUso.length>0 && (
+            <>
+              <div className="sec-label">Em uso nas contas (não configuradas)</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                {emUso.map(t=>(
+                  <span key={"u"+t} className="pn-sem" style={{background:"var(--surface)",color:"var(--muted)",cursor:"pointer"}} title="Clique para adicionar à lista configurada"
+                    onClick={()=>updateKanban(d=>{const arr=d.categoriasAnalise||[];if(!arr.includes(t))d.categoriasAnalise=[...arr,t].sort();return d;})}>
+                    {t} +
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  // ── PRODUTOS (catálogo) ────────────────────────────────────
+  function ProdutosTab() {
+    const [form, setForm] = useState({nome:"", valor:""});
+    const produtos = dataKanban?.produtos || [];
+
+    // Vendas agregadas por produto (em todos os clientes)
+    const vendas = {};
+    Object.values(dataKanban?.crm || {}).forEach(cr => (cr.produtosVendidos||[]).forEach(p => {
+      const k = p.produtoId || p.nome || "—";
+      if(!vendas[k]) vendas[k] = { n:0, total:0 };
+      vendas[k].n++; vendas[k].total += parseFloat(p.valor)||0;
+    }));
+    const totalVendido = Object.values(vendas).reduce((a,v)=>a+v.total,0);
+    const nVendas = Object.values(vendas).reduce((a,v)=>a+v.n,0);
+
+    return (
+      <>
+        <div className="pg-title">Produtos 🛒</div>
+        <div className="pg-sub">Catálogo de produtos vendidos aos clientes. As vendas são registradas no bloco de cada cliente (menu LTV) e somam no LTV.</div>
+
+        <div className="cards-row" style={{gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",maxWidth:560}}>
+          <div className="card"><div className="stat-lbl">Produtos no catálogo</div><div className="stat-val">{produtos.length}</div></div>
+          <div className="card"><div className="stat-lbl">Vendas registradas</div><div className="stat-val">{nVendas}</div></div>
+          <div className="card"><div className="stat-lbl">Total vendido</div><div className="stat-val pos">{fmt(totalVendido)}</div></div>
+        </div>
+
+        <div className="form-wrap">
+          <div className="sec-label" style={{marginTop:0}}>Novo produto</div>
+          <div className="fg">
+            <div className="fl"><label className="flabel">Nome</label>
+              <input className="fi" value={form.nome} onChange={e=>setForm(p=>({...p,nome:e.target.value}))} placeholder="Ex: Landing page, Consultoria"/></div>
+            <div className="fl"><label className="flabel">Valor padrão (R$)</label>
+              <input className="fi" type="number" value={form.valor} onChange={e=>setForm(p=>({...p,valor:e.target.value}))} placeholder="500"/></div>
+          </div>
+          <button className="btn btn-p" onClick={()=>{
+            if(!form.nome.trim()){alert("Informe o nome do produto.");return;}
+            updateKanban(d=>{
+              d.produtos = [...(d.produtos||[]), {id:"prod_"+Date.now(), nome:form.nome.trim(), valor:parseFloat(form.valor)||0}];
+              return d;
+            });
+            setForm({nome:"",valor:""});
+            showToast("Produto adicionado ao catálogo!");
+          }}>+ Adicionar produto</button>
+        </div>
+
+        {produtos.length===0 ? (
+          <div className="pn-empty">Nenhum produto cadastrado ainda.</div>
+        ) : (
+          <div className="cli-list compact" style={{maxWidth:640}}>
+            {produtos.map(p=>{
+              const v = vendas[p.id] || vendas[p.nome] || {n:0,total:0};
+              return (
+                <div className="cli-row" key={p.id}>
+                  <div className="cli-row-main">
+                    <span className="cli-row-nome">{p.nome}</span>
+                    <span className="cli-row-sub">{v.n} venda{v.n!==1?"s":""}{v.total>0?` · ${fmt(v.total)}`:""}</span>
+                  </div>
+                  <div className="cli-row-actions">
+                    <span className="badge b-g">{fmt(parseFloat(p.valor)||0)}</span>
+                    <button className="btn-rm" onClick={()=>{if(confirm(`Remover "${p.nome}" do catálogo? (vendas já registradas não são alteradas)`))updateKanban(d=>{d.produtos=(d.produtos||[]).filter(x=>x.id!==p.id);return d;});}}>×</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // ── PRODUTOS DE UM CLIENTE (modal) ─────────────────────────
+  function ProdutoClienteModal({cliId, onClose}) {
+    const cli = [...(data26?.clientes||[]), ...(data27?.clientes||[])].find(x=>x.id===cliId);
+    const catalogo = dataKanban?.produtos || [];
+    const crm = getCrm(cliId);
+    const vendidos = crm.produtosVendidos || [];
+    const hojeISO = new Date().toISOString().slice(0,10);
+    const [form, setForm] = useState({produtoId: catalogo[0]?.id || "", valor: catalogo[0]?.valor ?? "", data: hojeISO});
+    if (!cli) return null;
+    const totalProd = vendidos.reduce((a,p)=>a+(parseFloat(p.valor)||0),0);
+
+    return (
+      <div className="lead-modal-ov" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+        <div className="lead-modal" style={{maxWidth:520}}>
+          <div className="lead-modal-hdr">
+            <div>
+              <div className="lead-modal-title">Produtos — {cli.nome}</div>
+              <div style={{fontSize:12,color:"var(--muted)",marginTop:2}}>{vendidos.length} venda{vendidos.length!==1?"s":""} · {fmt(totalProd)} somando no LTV</div>
+            </div>
+            <button className="btn-rm" style={{fontSize:22}} onClick={onClose}>×</button>
+          </div>
+          <div className="lead-modal-body">
+            <div className="modal-section">
+              <div className="modal-section-title">Registrar venda</div>
+              {catalogo.length===0 ? (
+                <div className="alert warn"><span className="a-dot"/>Nenhum produto no catálogo. Cadastre primeiro no menu <strong>Produtos</strong>.</div>
+              ) : (
+                <>
+                  <div className="fg">
+                    <div className="fl"><label className="flabel">Produto</label>
+                      <select className="fi" value={form.produtoId} onChange={e=>{
+                        const p = catalogo.find(x=>x.id===e.target.value);
+                        setForm(f=>({...f, produtoId:e.target.value, valor: p ? p.valor : f.valor}));
+                      }}>
+                        {catalogo.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}
+                      </select></div>
+                    <div className="fl"><label className="flabel">Valor (R$)</label>
+                      <input className="fi" type="number" value={form.valor} onChange={e=>setForm(f=>({...f,valor:e.target.value}))}/></div>
+                    <div className="fl"><label className="flabel">Data</label>
+                      <input className="fi" type="date" value={form.data} onChange={e=>setForm(f=>({...f,data:e.target.value}))}/></div>
+                  </div>
+                  <button className="btn btn-p" style={{alignSelf:"flex-start"}} onClick={()=>{
+                    const p = catalogo.find(x=>x.id===form.produtoId);
+                    if(!p){alert("Selecione um produto.");return;}
+                    const item = {id:"pv_"+Date.now(), produtoId:p.id, nome:p.nome, valor:parseFloat(form.valor)||0, data:form.data};
+                    updateCrm(cliId, {produtosVendidos:[...vendidos, item]});
+                    showToast(`${p.nome} adicionado a ${cli.nome}!`);
+                  }}>+ Adicionar</button>
+                </>
+              )}
+            </div>
+            <div className="modal-section">
+              <div className="modal-section-title">Vendas deste cliente</div>
+              {vendidos.length===0
+                ? <div style={{fontSize:12,color:"var(--muted)",fontStyle:"italic"}}>Nenhuma venda registrada ainda.</div>
+                : <div className="cli-list compact">
+                    {[...vendidos].reverse().map(p=>(
+                      <div className="cli-row" key={p.id}>
+                        <div className="cli-row-main">
+                          <span className="cli-row-nome">{p.nome}</span>
+                          <span className="cli-row-sub">{fmtData(p.data)}</span>
+                        </div>
+                        <div className="cli-row-actions">
+                          <span className="badge b-g">{fmt(parseFloat(p.valor)||0)}</span>
+                          <button className="btn-rm" onClick={()=>{if(confirm("Remover esta venda?"))updateCrm(cliId,{produtosVendidos:vendidos.filter(x=>x.id!==p.id)});}}>×</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+              }
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -2861,6 +3053,9 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
 
       {/* DRAWER PAINEL DE CLIENTES */}
       {renderPainelDrawer()}
+
+      {/* MODAL DE PRODUTOS DO CLIENTE */}
+      {prodCliId && <ProdutoClienteModal cliId={prodCliId} onClose={()=>setProdCliId(null)}/>}
 
       {/* TOAST */}
       {toast && <div className="toast show">{toast}</div>}
