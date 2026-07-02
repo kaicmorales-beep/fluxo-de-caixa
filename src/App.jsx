@@ -109,15 +109,33 @@ function applyValor(item, scope, mi, newVal, msLen) {
   item.valor = newVal;
 }
 
+// ── PRODUTOS CONTRATADOS POR CLIENTE ─────────────────────────
+// Cada cliente pode ter produtos contratados (valor mensal + início + duração).
+// Quando existem, ELES definem a receita mensal do cliente; sem produtos,
+// vale o cadastro legado (valor único + início + parcelas).
+function prodAtivoMes(p, mi) {
+  const ini = parseInt(p.inicio)||0, par = parseInt(p.parcelas)||0;
+  return mi >= ini && (par === 0 || (mi - ini) < par);
+}
+function cliValMes(c, mi) {
+  const pr = c.produtosContratados;
+  if (Array.isArray(pr) && pr.length) return pr.reduce((a,p)=>a+(prodAtivoMes(p,mi)?(parseFloat(p.valor)||0):0),0);
+  const ini = parseInt(c.inicio), par = parseInt(c.parcelas);
+  return (mi >= ini && (par === 0 || (mi - ini) < par)) ? valEff(c, mi) : 0;
+}
+function cliAtivoMes(c, mi) {
+  const pr = c.produtosContratados;
+  if (Array.isArray(pr) && pr.length) return pr.some(p=>prodAtivoMes(p,mi));
+  const ini = parseInt(c.inicio), par = parseInt(c.parcelas);
+  return mi >= ini && (par === 0 || (mi - ini) < par);
+}
+
 function cliMes(d, ano) {
   const n = ANOS_CONFIG[ano].length;
   const a = Array(n).fill(0);
   d.clientes.forEach(c => {
     if (c.status !== "ativo") return;
-    const ini = parseInt(c.inicio), par = parseInt(c.parcelas);
-    for (let i = ini; i < n; i++) {
-      if (par === 0 || (i - ini) < par) a[i] += valEff(c, i);
-    }
+    for (let i = 0; i < n; i++) a[i] += cliValMes(c, i);
   });
   return a;
 }
@@ -1084,7 +1102,7 @@ export default function App() {
     if (atvCard) {
       const grupo = GRUPOS.find(g=>g.key===atvCard);
       const items = D.clientes.map((c,i)=>({...c,_i:i})).filter(c=>(c.tipoReceita||"cliente")===atvCard);
-      const ativosNoMes = items.filter(c=>{const ini=parseInt(c.inicio),par=parseInt(c.parcelas);return atvMes>=ini&&(par===0||(atvMes-ini)<par);});
+      const ativosNoMes = items.filter(c=>cliAtivoMes(c,atvMes));
       const nSel = ativosNoMes.filter(c=>selRec[c.id]).length;
       const allSel = ativosNoMes.length>0 && ativosNoMes.every(c=>selRec[c.id]);
       const toggleAll = ()=>setSelRec(p=>{const n={...p};if(allSel)ativosNoMes.forEach(c=>delete n[c.id]);else ativosNoMes.forEach(c=>{n[c.id]=true;});return n;});
@@ -1093,8 +1111,8 @@ export default function App() {
         if(sel.length===0){showToast("Selecione ao menos uma receita.");return;}
         const fmtBR = v=>(parseFloat(v)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
         let txt = `Olá! Seguem as receitas de ${ms[atvMes]}/${ano} para emissão de NF:\n\n`;
-        sel.forEach((c,idx)=>{txt+=`${idx+1}. ${c.nome} — ${fmtBR(valEff(c,atvMes))}\n`;});
-        txt += `\nTotal: ${fmtBR(sel.reduce((a,c)=>a+valEff(c,atvMes),0))}`;
+        sel.forEach((c,idx)=>{txt+=`${idx+1}. ${c.nome} — ${fmtBR(cliValMes(c,atvMes))}\n`;});
+        txt += `\nTotal: ${fmtBR(sel.reduce((a,c)=>a+cliValMes(c,atvMes),0))}`;
         if(navigator.clipboard?.writeText){
           navigator.clipboard.writeText(txt).then(()=>showToast(`Mensagem copiada (${sel.length} receita(s))!`)).catch(()=>window.prompt("Copie a mensagem:",txt));
         } else window.prompt("Copie a mensagem:",txt);
@@ -1133,11 +1151,11 @@ export default function App() {
 
           <div className="cli-list compact">
             {items.map(c=>{
-              const i=c._i, ini=parseInt(c.inicio), par=parseInt(c.parcelas), val=valEff(c,atvMes);
+              const i=c._i, ini=parseInt(c.inicio), par=parseInt(c.parcelas), val=cliValMes(c,atvMes);
+              const temProdutos = Array.isArray(c.produtosContratados) && c.produtosContratados.length>0;
 
               // Só mostra se ativa no mês selecionado
-              const ativaNoMes = atvMes>=ini && (par===0||(atvMes-ini)<par);
-              if(!ativaNoMes) return null;
+              if(!cliAtivoMes(c,atvMes)) return null;
 
               const atual = par===0 ? null : (atvMes-ini+1);
               const rec = !!(c.recebidos&&c.recebidos[atvMes]);
@@ -1147,12 +1165,19 @@ export default function App() {
                   <input type="checkbox" className="rec-chk" checked={!!selRec[c.id]} onChange={()=>setSelRec(p=>({...p,[c.id]:!p[c.id]}))}/>
                   <div className="cli-row-main">
                     <span className="cli-row-nome">{c.nome}</span>
-                    <span className="cli-row-sub">{TIPOS[c.tipo]||c.tipo||"—"} · {par===0?"Fixa":`${atual}/${par}`}</span>
+                    <span className="cli-row-sub">{TIPOS[c.tipo]||c.tipo||"—"} · {temProdutos?`${c.produtosContratados.length} produto${c.produtosContratados.length!==1?"s":""}`:(par===0?"Fixa":`${atual}/${par}`)}</span>
                   </div>
                   <div className="cli-row-actions">
                     {c.status!=="ativo" && <span className={`badge ${SBADGE[c.status]||"b-gray"}`}>{SLBL[c.status]||c.status}</span>}
-                    <ValorCell value={val} mes={ms[atvMes]} tone="rec" overridden={ovr}
-                      onApply={(nv,scope)=>update(d=>{applyValor(d.clientes[i],scope,atvMes,nv,ms.length);return d;})}/>
+                    {temProdutos ? (
+                      <span className="badge b-g" style={{cursor:"pointer"}} title="Valor definido pelos produtos — clique para gerenciar"
+                        onClick={()=>setProdCliId(c.id)}>
+                        {fmt(val)}/mês 🛒
+                      </span>
+                    ) : (
+                      <ValorCell value={val} mes={ms[atvMes]} tone="rec" overridden={ovr}
+                        onApply={(nv,scope)=>update(d=>{applyValor(d.clientes[i],scope,atvMes,nv,ms.length);return d;})}/>
+                    )}
                     {c.status==="ativo" && (
                       <button className={`pill-tog ${rec?"on":"off"}`} title={`Marcar como ${rec?"não recebido":"recebido"} em ${ms[atvMes]}`}
                         onClick={()=>update(d=>{const x=d.clientes[i];if(!x.recebidos)x.recebidos={};x.recebidos[atvMes]=!x.recebidos[atvMes];return d;})}>
@@ -1187,10 +1212,7 @@ export default function App() {
               <div className="tbl-wrap" style={{maxWidth:280}}>
                 <table><thead><tr><th style={{textAlign:"left"}}>Mês</th><th>Total</th></tr></thead>
                   <tbody>{ms.map((m,mi)=>{
-                    const v=items.filter(c=>c.status==="ativo").reduce((a,c)=>{
-                      const ini=parseInt(c.inicio),par=parseInt(c.parcelas);
-                      return mi>=ini&&(par===0||(mi-ini)<par)?a+valEff(c,mi):a;
-                    },0);
+                    const v=items.filter(c=>c.status==="ativo").reduce((a,c)=>a+cliValMes(c,mi),0);
                     return v>0?<tr key={mi}><td className="td-m">{m}</td><td className="td-n pos" style={{fontWeight:600}}>{fmt(v)}</td></tr>:null;
                   })}</tbody>
                 </table>
@@ -1218,12 +1240,12 @@ export default function App() {
             <button className="btn btn-p btn-sm" onClick={()=>setActiveTab("clientes")}>+ Adicionar receita</button>
           </div>
         </div>
-        {totalGeral>0&&<div style={{fontFamily:"var(--mono)",fontSize:13,color:"var(--muted)",marginBottom:16}}>Total ativo em {ms[atvMes]}: <strong style={{color:"#1a6e1a"}}>{fmt(D.clientes.filter(c=>c.status==="ativo").reduce((a,c)=>{const ini=parseInt(c.inicio),par=parseInt(c.parcelas);return atvMes>=ini&&(par===0||(atvMes-ini)<par)?a+valEff(c,atvMes):a;},0))}/mês</strong></div>}
+        {totalGeral>0&&<div style={{fontFamily:"var(--mono)",fontSize:13,color:"var(--muted)",marginBottom:16}}>Total ativo em {ms[atvMes]}: <strong style={{color:"#1a6e1a"}}>{fmt(D.clientes.filter(c=>c.status==="ativo").reduce((a,c)=>a+cliValMes(c,atvMes),0))}/mês</strong></div>}
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:10}}>
           {GRUPOS.map(g=>{
             const items=D.clientes.map((c,i)=>({...c,_i:i})).filter(c=>(c.tipoReceita||"cliente")===g.key);
-            const ativosNoMes=items.filter(c=>c.status==="ativo"&&(()=>{const ini=parseInt(c.inicio),par=parseInt(c.parcelas);return atvMes>=ini&&(par===0||(atvMes-ini)<par);})());
-            const totalMes=ativosNoMes.reduce((a,c)=>a+valEff(c,atvMes),0);
+            const ativosNoMes=items.filter(c=>c.status==="ativo"&&cliAtivoMes(c,atvMes));
+            const totalMes=ativosNoMes.reduce((a,c)=>a+cliValMes(c,atvMes),0);
             return (
               <div key={g.key} onClick={()=>setAtvCard(g.key)} style={{
                 background:g.bg, border:`1.5px solid ${g.brd}`, borderRadius:"var(--r)",
@@ -1252,12 +1274,8 @@ export default function App() {
           <div className="sec-label" style={{marginTop:0}}>Panorama anual</div>
           <div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:8}}>
             {ms.map((m,mi)=>{
-              const ativosNoMes=D.clientes.filter(c=>{
-                if(c.status!=="ativo") return false;
-                const ini=parseInt(c.inicio),par=parseInt(c.parcelas);
-                return mi>=ini&&(par===0||(mi-ini)<par);
-              });
-              const totalMes=ativosNoMes.reduce((a,c)=>a+valEff(c,mi),0);
+              const ativosNoMes=D.clientes.filter(c=>c.status==="ativo"&&cliAtivoMes(c,mi));
+              const totalMes=ativosNoMes.reduce((a,c)=>a+cliValMes(c,mi),0);
               const selecionado=mi===atvMes;
               return (
                 <div key={mi} onClick={()=>{setAtvMes(mi);setAtvCard("cliente");}} style={{
@@ -1281,7 +1299,7 @@ export default function App() {
                           <div key={ci} style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
                             <div style={{width:6,height:6,borderRadius:"50%",background:g?.cor||"#888",flexShrink:0}}/>
                             <span style={{fontSize:11,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.nome}</span>
-                            <span style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--mono)",marginLeft:"auto",flexShrink:0}}>{fmt(valEff(c,mi))}</span>
+                            <span style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--mono)",marginLeft:"auto",flexShrink:0}}>{fmt(cliValMes(c,mi))}</span>
                           </div>
                         );
                       })
@@ -1320,9 +1338,8 @@ export default function App() {
     // Receitas itemizadas (clientes ativos no mês)
     const recItens = [];
     (D.clientes || []).forEach((c, i) => {
-      const ini = parseInt(c.inicio), par = parseInt(c.parcelas), val = parseFloat(c.valor) || 0;
-      if (c.status === "ativo" && ativo(ini, par)) {
-        recItens.push({ i, nome: c.nome, val: valEff(c, mi), ovr: !!(c.valorMes && c.valorMes[mi]!=null), grupo: c.tipoReceita || "cliente", recebido: !!(c.recebidos && c.recebidos[mi]) });
+      if (c.status === "ativo" && cliAtivoMes(c, mi)) {
+        recItens.push({ i, id: c.id, temProdutos: Array.isArray(c.produtosContratados) && c.produtosContratados.length>0, nome: c.nome, val: cliValMes(c, mi), ovr: !!(c.valorMes && c.valorMes[mi]!=null), grupo: c.tipoReceita || "cliente", recebido: !!(c.recebidos && c.recebidos[mi]) });
       }
     });
     // Despesas itemizadas (contas ativas no mês)
@@ -1349,8 +1366,7 @@ export default function App() {
     const realizadoMes = (k) => {
       let r = 0, dd = 0;
       (D.clientes || []).forEach(c => {
-        const ini = parseInt(c.inicio), par = parseInt(c.parcelas);
-        if (c.status === "ativo" && k >= ini && (par === 0 || (k - ini) < par) && c.recebidos && c.recebidos[k]) r += valEff(c, k);
+        if (c.status === "ativo" && cliAtivoMes(c, k) && c.recebidos && c.recebidos[k]) r += cliValMes(c, k);
       });
       (D.categorias || []).forEach(cat => cat.contas.forEach(ct => {
         const ini = parseInt(ct.inicio), par = parseInt(ct.parcelas);
@@ -1427,8 +1443,13 @@ export default function App() {
                     <div className="cli-row-main">
                       <span className="cli-row-nome">{r.nome}</span>
                     </div>
-                    <ValorCell value={r.val} mes={ms[mi]} tone="rec" overridden={r.ovr}
-                      onApply={(nv,scope)=>update(d=>{applyValor(d.clientes[r.i],scope,mi,nv,ms.length);return d;})}/>
+                    {r.temProdutos ? (
+                      <span className="badge b-g" style={{cursor:"pointer"}} title="Valor definido pelos produtos — clique para gerenciar"
+                        onClick={()=>setProdCliId(r.id)}>{fmt(r.val)}/mês 🛒</span>
+                    ) : (
+                      <ValorCell value={r.val} mes={ms[mi]} tone="rec" overridden={r.ovr}
+                        onApply={(nv,scope)=>update(d=>{applyValor(d.clientes[r.i],scope,mi,nv,ms.length);return d;})}/>
+                    )}
                     <button className={`pill-tog ${r.recebido?"on":"off"}`}
                       onClick={()=>update(d=>{const x=d.clientes[r.i];if(!x.recebidos)x.recebidos={};x.recebidos[mi]=!x.recebidos[mi];return d;})}>
                       {r.recebido?"✓ Recebido":"Não recebido"}
@@ -1746,30 +1767,58 @@ export default function App() {
 
     const rows = entradas.map(({c, yr}) => {
       const crm = getCrm(c.id);
-      const par = parseInt(c.parcelas)||0;
-      // Término SEMPRE derivado do cadastro da receita (bate com a aba Receitas):
-      // mês de início cadastrado + nº de parcelas. Recorrente não vence.
-      const iniCadastro = defInicio(c, yr);
-      const fim = par>0 ? addM(iniCadastro, par-1) : null;
-      // Início do cliente: data manual (CRM) — pode ser anterior ao cadastro e aumenta o LTV.
-      // Sem data manual, usa o próprio início do cadastro.
-      const diRaw = crm.dataEntrada ? new Date(crm.dataEntrada+"T00:00:00") : iniCadastro;
-      const di = isNaN(diRaw) ? iniCadastro : diRaw;
-      // Meses do início até o mês atual (inclusive) — ou até o término, se já passou
-      const ate = fim && mIdx(fim) < mIdx(hoje) ? fim : hoje;
-      let mesesAtivos = mIdx(ate) - mIdx(di) + 1;
-      if (mesesAtivos < 0) mesesAtivos = 0;
-      const valor = parseFloat(c.valor)||0;
-      // Produtos vendidos para este cliente somam no LTV
-      const produtosVendidos = crm.produtosVendidos || [];
-      const prodTotal = produtosVendidos.reduce((a,p)=>a+(parseFloat(p.valor)||0),0);
-      const ltv = mesesAtivos * valor + prodTotal;
-      const ltvContrato = par===0 ? null : par * valor; // valor total previsto do contrato
+      // Vendas avulsas somam no LTV
+      const avulsas = crm.produtosVendidos || [];
+      const avulsasTotal = avulsas.reduce((a,p)=>a+(parseFloat(p.valor)||0),0);
+      const pr = Array.isArray(c.produtosContratados) && c.produtosContratados.length ? c.produtosContratados : null;
+      const mesDate = (i) => { const x=parseInt(i)||0; return new Date(yr, yr===2026?3+x:x, 1); };
+
+      let di, fim, mesesAtivos, valor, ltv, ltvContrato;
+      if (pr) {
+        // Cliente com produtos contratados: LTV = soma do acumulado de cada produto
+        let ltvProds = 0, contratoTotal = 0, valorAtual = 0, temRecorrente = false;
+        let minIni = null, maxFim = null;
+        pr.forEach(p=>{
+          const ini = mesDate(p.inicio);
+          const par = parseInt(p.parcelas)||0;
+          const pFim = par>0 ? addM(ini, par-1) : null;
+          if (!pFim) temRecorrente = true; else if (!maxFim || mIdx(pFim)>mIdx(maxFim)) maxFim = pFim;
+          if (!minIni || mIdx(ini)<mIdx(minIni)) minIni = ini;
+          const ate = pFim && mIdx(pFim)<mIdx(hoje) ? pFim : hoje;
+          let m = mIdx(ate)-mIdx(ini)+1; if (m<0) m=0;
+          if (par>0) m = Math.min(m, par);
+          const v = parseFloat(p.valor)||0;
+          ltvProds += m*v;
+          if (par>0) contratoTotal += par*v;
+          if (mIdx(hoje)>=mIdx(ini) && (!pFim || mIdx(hoje)<=mIdx(pFim))) valorAtual += v;
+        });
+        di = minIni || hoje;
+        fim = temRecorrente ? null : maxFim; // com produto recorrente, o cliente não "vence"
+        const ate = fim && mIdx(fim)<mIdx(hoje) ? fim : hoje;
+        mesesAtivos = Math.max(0, mIdx(ate)-mIdx(di)+1);
+        valor = valorAtual;
+        ltv = ltvProds + avulsasTotal;
+        ltvContrato = temRecorrente ? null : contratoTotal;
+      } else {
+        // Legado: valor único + parcelas do cadastro da receita
+        const par = parseInt(c.parcelas)||0;
+        // Término SEMPRE derivado do cadastro (bate com a aba Receitas)
+        const iniCadastro = defInicio(c, yr);
+        fim = par>0 ? addM(iniCadastro, par-1) : null;
+        // Início manual (CRM) só estende a contagem de meses (aumenta o LTV)
+        const diRaw = crm.dataEntrada ? new Date(crm.dataEntrada+"T00:00:00") : iniCadastro;
+        di = isNaN(diRaw) ? iniCadastro : diRaw;
+        const ate = fim && mIdx(fim) < mIdx(hoje) ? fim : hoje;
+        mesesAtivos = Math.max(0, mIdx(ate) - mIdx(di) + 1);
+        valor = parseFloat(c.valor)||0;
+        ltv = mesesAtivos * valor + avulsasTotal;
+        ltvContrato = par===0 ? null : par * valor;
+      }
       const mesesRestantes = fim ? mIdx(fim) - mIdx(hoje) : null; // null = recorrente
       const encerrado = fim ? mesesRestantes < 0 : false;
       // Semáforo de renovação: vermelho = vence este mês | amarelo = vence em até 2 meses
       const venc = !fim ? "none" : mesesRestantes < 0 ? "past" : mesesRestantes === 0 ? "vermelho" : mesesRestantes <= 2 ? "amarelo" : "ok";
-      return { c, yr, crm, di, fim, mesesAtivos, mesesRestantes, valor, prodTotal, nProd: produtosVendidos.length, ltv, ltvContrato, encerrado, venc };
+      return { c, yr, crm, di, fim, mesesAtivos, mesesRestantes, valor, prodTotal: avulsasTotal, nProd: avulsas.length, nContratados: pr?pr.length:0, isProd: !!pr, ltv, ltvContrato, encerrado, venc };
     });
 
     const view = rows.filter(r => {
@@ -1843,22 +1892,30 @@ export default function App() {
                     {r.venc==="amarelo" && <span className="pn-chip warn" style={{alignSelf:"flex-start"}}>🟡 Vence em {r.mesesRestantes} {r.mesesRestantes===1?"mês":"meses"}</span>}
                     <div style={{fontSize:22,fontWeight:700,fontFamily:"var(--mono)",color:"#1a6e1a"}}>{fmt(r.ltv)}</div>
                     <div style={{fontSize:11,color:"var(--muted)"}}>
-                      {fmt(r.valor)}/mês × {r.mesesAtivos} {r.mesesAtivos===1?"mês":"meses"}
-                      {r.prodTotal>0 && <> + <strong style={{color:"#1a6e1a"}}>{fmt(r.prodTotal)}</strong> em produtos</>}
+                      {r.isProd
+                        ? <>{r.nContratados} produto{r.nContratados!==1?"s":""} · {fmt(r.valor)}/mês atual</>
+                        : <>{fmt(r.valor)}/mês × {r.mesesAtivos} {r.mesesAtivos===1?"mês":"meses"}</>}
+                      {r.prodTotal>0 && <> + <strong style={{color:"#1a6e1a"}}>{fmt(r.prodTotal)}</strong> avulsos</>}
                       {r.ltvContrato!=null && <> · contrato: {fmt(r.ltvContrato)}</>}
                     </div>
                     <div style={{fontSize:11,color:r.venc==="vermelho"?"var(--red)":r.venc==="amarelo"?"var(--warn)":"var(--muted)",fontWeight:r.venc==="vermelho"||r.venc==="amarelo"?600:400}}>
                       Término: {r.fim ? fmtInicio(r.fim) : "recorrente (sem fim)"}
                     </div>
-                    <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
-                      <label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".05em",flexShrink:0}}>Início</label>
-                      <input className="dw-in" type="date" style={{padding:"4px 7px",fontSize:12}}
-                        value={crmDataISO(r)}
-                        onChange={e=>updateCrm(r.c.id, {dataEntrada: e.target.value})}/>
-                    </div>
+                    {r.isProd ? (
+                      <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>
+                        Início {fmtInicio(r.di)} — definido pelos produtos contratados
+                      </div>
+                    ) : (
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                        <label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".05em",flexShrink:0}}>Início</label>
+                        <input className="dw-in" type="date" style={{padding:"4px 7px",fontSize:12}}
+                          value={crmDataISO(r)}
+                          onChange={e=>updateCrm(r.c.id, {dataEntrada: e.target.value})}/>
+                      </div>
+                    )}
                     <div style={{display:"flex",gap:6,marginTop:2}}>
                       <button className="btn btn-p btn-sm" onClick={()=>setProdCliId(r.c.id)}>
-                        🛒 + Produto{r.nProd>0?` (${r.nProd})`:""}
+                        🛒 Produtos{(r.nContratados+r.nProd)>0?` (${r.nContratados+r.nProd})`:""}
                       </button>
                       <button className="btn btn-sm"
                         onClick={()=>{setPainelDrawerId(r.c.id);setPainelHistText("");}}>Ver detalhes →</button>
@@ -2102,10 +2159,12 @@ export default function App() {
           <div style={{display:"flex",gap:10}}>
             <button className="btn btn-p" onClick={()=>{
               if(!form.nome||!form.valor){alert("Preencha nome e valor.");return;}
-              update(d=>{d.clientes.push({...form,id:"cli_"+Math.random().toString(36).slice(2)+Date.now().toString(36),valor:parseFloat(form.valor)});return d;});
+              const novoId = "cli_"+Math.random().toString(36).slice(2)+Date.now().toString(36);
+              update(d=>{d.clientes.push({...form,id:novoId,valor:parseFloat(form.valor)});return d;});
               setAtvCard(form.tipoReceita);
               setActiveTab("ativos");
-              showToast("Receita adicionada!");
+              setProdCliId(novoId); // abre o modal de produtos do cliente
+              showToast("Cliente adicionado! Configure os produtos que ele comprou.");
             }}>+ Adicionar</button>
             <button className="btn" onClick={()=>setActiveTab("ativos")}>Cancelar</button>
           </div>
@@ -2170,6 +2229,7 @@ export default function App() {
             onDone();
             showToast("Salvo!");
           }}>Salvar</button>
+          <button className="btn" onClick={()=>{onDone();setProdCliId(item.id);}}>🛒 Produtos do cliente</button>
           <button className="btn" onClick={onDone}>Cancelar</button>
         </div>
       </div>
@@ -2289,78 +2349,238 @@ export default function App() {
     );
   }
 
-  // ── PRODUTOS DE UM CLIENTE (modal) ─────────────────────────
-  function ProdutoClienteModal({cliId, onClose}) {
-    const cli = [...(data26?.clientes||[]), ...(data27?.clientes||[])].find(x=>x.id===cliId);
+  // ── PRODUTOS DE UM CLIENTE (modal 80% da tela) ──────────────
+  function ClienteProdutosModal({cliId, onClose}) {
+    const found = [[2026,data26],[2027,data27]]
+      .map(([yr,dd])=>({yr, c:(dd?.clientes||[]).find(x=>x.id===cliId)}))
+      .find(x=>x.c);
     const catalogo = dataKanban?.produtos || [];
     const crm = getCrm(cliId);
-    const vendidos = crm.produtosVendidos || [];
+    const avulsas = crm.produtosVendidos || [];
     const hojeISO = new Date().toISOString().slice(0,10);
-    const [form, setForm] = useState({produtoId: catalogo[0]?.id || "", valor: catalogo[0]?.valor ?? "", data: hojeISO});
-    if (!cli) return null;
-    const totalProd = vendidos.reduce((a,p)=>a+(parseFloat(p.valor)||0),0);
+    const [formP, setFormP] = useState({produtoId:"", valor:"", inicio:0, parcelas:0});
+    const [formA, setFormA] = useState({produtoId:"", valor:"", data:hojeISO});
+    if (!found) return null;
+    const { yr, c: cli } = found;
+    const msAno = ANOS_CONFIG[yr];
+    const contratados = cli.produtosContratados || [];
+    const totalMesAtual = contratados.length ? msAno.map((_,mi)=>cliValMes(cli,mi)) : null;
+    const totalAvulsas = avulsas.reduce((a,p)=>a+(parseFloat(p.valor)||0),0);
+
+    // Atualiza o cliente no ano correto (pode ser diferente do ano ativo na tela)
+    const updateCli = (mut) => {
+      const set = yr===2026 ? setData26 : setData27;
+      set(prev=>{
+        const next = JSON.parse(JSON.stringify(prev));
+        const cc = next.clientes.find(x=>x.id===cliId);
+        if (cc) mut(cc);
+        saveData(next, yr);
+        return next;
+      });
+    };
+
+    const selCat = (setF) => (e) => {
+      const p = catalogo.find(x=>x.id===e.target.value);
+      setF(f=>({...f, produtoId:e.target.value, valor: p ? p.valor : f.valor}));
+    };
 
     return (
-      <div className="lead-modal-ov" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-        <div className="lead-modal" style={{maxWidth:520}}>
-          <div className="lead-modal-hdr">
+      <div className="edit-modal-ov" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+        <div className="edit-modal">
+          <div className="edit-modal-hdr">
             <div>
-              <div className="lead-modal-title">Produtos — {cli.nome}</div>
-              <div style={{fontSize:12,color:"var(--muted)",marginTop:2}}>{vendidos.length} venda{vendidos.length!==1?"s":""} · {fmt(totalProd)} somando no LTV</div>
+              <div className="edit-modal-title">🛒 Produtos — {cli.nome}</div>
+              <div style={{fontSize:12,color:"var(--muted)",marginTop:2}}>
+                {contratados.length>0
+                  ? <>Os produtos abaixo definem a receita mensal deste cliente no fluxo ({yr}).</>
+                  : <>Sem produtos, vale o valor único do cadastro ({fmt(parseFloat(cli.valor)||0)}/mês).</>}
+              </div>
             </div>
-            <button className="btn-rm" style={{fontSize:22}} onClick={onClose}>×</button>
+            <button className="dw-x" onClick={onClose} title="Fechar">×</button>
           </div>
-          <div className="lead-modal-body">
-            <div className="modal-section">
-              <div className="modal-section-title">Registrar venda</div>
-              {catalogo.length===0 ? (
-                <div className="alert warn"><span className="a-dot"/>Nenhum produto no catálogo. Cadastre primeiro no menu <strong>Produtos</strong>.</div>
-              ) : (
-                <>
-                  <div className="fg">
-                    <div className="fl"><label className="flabel">Produto</label>
-                      <select className="fi" value={form.produtoId} onChange={e=>{
-                        const p = catalogo.find(x=>x.id===e.target.value);
-                        setForm(f=>({...f, produtoId:e.target.value, valor: p ? p.valor : f.valor}));
-                      }}>
-                        {catalogo.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}
-                      </select></div>
-                    <div className="fl"><label className="flabel">Valor (R$)</label>
-                      <input className="fi" type="number" value={form.valor} onChange={e=>setForm(f=>({...f,valor:e.target.value}))}/></div>
-                    <div className="fl"><label className="flabel">Data</label>
-                      <input className="fi" type="date" value={form.data} onChange={e=>setForm(f=>({...f,data:e.target.value}))}/></div>
-                  </div>
-                  <button className="btn btn-p" style={{alignSelf:"flex-start"}} onClick={()=>{
-                    const p = catalogo.find(x=>x.id===form.produtoId);
-                    if(!p){alert("Selecione um produto.");return;}
-                    const item = {id:"pv_"+Date.now(), produtoId:p.id, nome:p.nome, valor:parseFloat(form.valor)||0, data:form.data};
-                    updateCrm(cliId, {produtosVendidos:[...vendidos, item]});
-                    showToast(`${p.nome} adicionado a ${cli.nome}!`);
-                  }}>+ Adicionar</button>
-                </>
-              )}
-            </div>
-            <div className="modal-section">
-              <div className="modal-section-title">Vendas deste cliente</div>
-              {vendidos.length===0
-                ? <div style={{fontSize:12,color:"var(--muted)",fontStyle:"italic"}}>Nenhuma venda registrada ainda.</div>
-                : <div className="cli-list compact">
-                    {[...vendidos].reverse().map(p=>(
+
+          {/* PRODUTOS CONTRATADOS */}
+          <div className="dw-sec" style={{marginBottom:14}}>
+            <div className="dw-sec-t">Produtos contratados — entram no fluxo e no LTV</div>
+            {contratados.length===0
+              ? <div style={{fontSize:12,color:"var(--muted)",fontStyle:"italic"}}>Nenhum produto contratado. O fluxo usa o valor único do cadastro.</div>
+              : <div className="cli-list compact">
+                  {contratados.map(p=>{
+                    const par = parseInt(p.parcelas)||0;
+                    return (
                       <div className="cli-row" key={p.id}>
                         <div className="cli-row-main">
                           <span className="cli-row-nome">{p.nome}</span>
-                          <span className="cli-row-sub">{fmtData(p.data)}</span>
+                          <span className="cli-row-sub">
+                            início {msAno[parseInt(p.inicio)||0]||"?"}/{yr} · {par===0?"recorrente":`${par} ${par===1?"mês":"meses"}`}
+                          </span>
                         </div>
                         <div className="cli-row-actions">
-                          <span className="badge b-g">{fmt(parseFloat(p.valor)||0)}</span>
-                          <button className="btn-rm" onClick={()=>{if(confirm("Remover esta venda?"))updateCrm(cliId,{produtosVendidos:vendidos.filter(x=>x.id!==p.id)});}}>×</button>
+                          <span className="badge b-g">{fmt(parseFloat(p.valor)||0)}/mês</span>
+                          <button className="btn-rm" onClick={()=>{if(confirm(`Remover "${p.nome}" deste cliente?`))updateCli(cc=>{cc.produtosContratados=(cc.produtosContratados||[]).filter(x=>x.id!==p.id);});}}>×</button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-              }
-            </div>
+                    );
+                  })}
+                </div>
+            }
+            {catalogo.length===0 ? (
+              <div className="alert warn" style={{marginBottom:0}}><span className="a-dot"/>Nenhum produto no catálogo. Cadastre primeiro no menu <strong>Produtos 🛒</strong>.</div>
+            ) : (
+              <>
+                <div className="fg">
+                  <div className="fl"><label className="flabel">Produto</label>
+                    <select className="fi" value={formP.produtoId} onChange={selCat(setFormP)}>
+                      <option value="">— selecione —</option>
+                      {catalogo.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}
+                    </select></div>
+                  <div className="fl"><label className="flabel">Valor mensal (R$)</label>
+                    <input className="fi" type="number" value={formP.valor} onChange={e=>setFormP(f=>({...f,valor:e.target.value}))}/></div>
+                  <div className="fl"><label className="flabel">Mês de início ({yr})</label>
+                    <select className="fi" value={formP.inicio} onChange={e=>setFormP(f=>({...f,inicio:parseInt(e.target.value)}))}>
+                      {msAno.map((m,i)=><option key={i} value={i}>{m}</option>)}
+                    </select></div>
+                  <div className="fl"><label className="flabel">Quanto tempo</label>
+                    <select className="fi" value={formP.parcelas} onChange={e=>setFormP(f=>({...f,parcelas:parseInt(e.target.value)}))}>
+                      {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
+                      <option value={0}>Recorrente (sem fim)</option>
+                    </select></div>
+                </div>
+                <button className="btn btn-p" style={{alignSelf:"flex-start"}} onClick={()=>{
+                  const p = catalogo.find(x=>x.id===formP.produtoId);
+                  if(!p){alert("Selecione um produto.");return;}
+                  const item = {id:"cp_"+Date.now(), produtoId:p.id, nome:p.nome, valor:parseFloat(formP.valor)||0, inicio:formP.inicio, parcelas:formP.parcelas};
+                  updateCli(cc=>{cc.produtosContratados=[...(cc.produtosContratados||[]), item];});
+                  showToast(`${p.nome} contratado por ${cli.nome}!`);
+                }}>+ Adicionar produto</button>
+              </>
+            )}
+            {totalMesAtual && (
+              <div style={{fontSize:11,color:"var(--muted)"}}>
+                Receita mensal resultante: {msAno.map((m,mi)=>totalMesAtual[mi]>0?`${m.substring(0,3)} ${fmt(totalMesAtual[mi])}`:null).filter(Boolean).join(" · ")||"—"}
+              </div>
+            )}
           </div>
+
+          {/* VENDAS AVULSAS */}
+          <div className="dw-sec">
+            <div className="dw-sec-t">Vendas avulsas — somam só no LTV ({fmt(totalAvulsas)})</div>
+            {avulsas.length===0
+              ? <div style={{fontSize:12,color:"var(--muted)",fontStyle:"italic"}}>Nenhuma venda avulsa registrada.</div>
+              : <div className="cli-list compact">
+                  {[...avulsas].reverse().map(p=>(
+                    <div className="cli-row" key={p.id}>
+                      <div className="cli-row-main">
+                        <span className="cli-row-nome">{p.nome}</span>
+                        <span className="cli-row-sub">{fmtData(p.data)}</span>
+                      </div>
+                      <div className="cli-row-actions">
+                        <span className="badge b-g">{fmt(parseFloat(p.valor)||0)}</span>
+                        <button className="btn-rm" onClick={()=>{if(confirm("Remover esta venda?"))updateCrm(cliId,{produtosVendidos:avulsas.filter(x=>x.id!==p.id)});}}>×</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+            }
+            {catalogo.length>0 && (
+              <>
+                <div className="fg">
+                  <div className="fl"><label className="flabel">Produto</label>
+                    <select className="fi" value={formA.produtoId} onChange={selCat(setFormA)}>
+                      <option value="">— selecione —</option>
+                      {catalogo.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}
+                    </select></div>
+                  <div className="fl"><label className="flabel">Valor (R$)</label>
+                    <input className="fi" type="number" value={formA.valor} onChange={e=>setFormA(f=>({...f,valor:e.target.value}))}/></div>
+                  <div className="fl"><label className="flabel">Data</label>
+                    <input className="fi" type="date" value={formA.data} onChange={e=>setFormA(f=>({...f,data:e.target.value}))}/></div>
+                </div>
+                <button className="btn btn-sm" style={{alignSelf:"flex-start"}} onClick={()=>{
+                  const p = catalogo.find(x=>x.id===formA.produtoId);
+                  if(!p){alert("Selecione um produto.");return;}
+                  const item = {id:"pv_"+Date.now(), produtoId:p.id, nome:p.nome, valor:parseFloat(formA.valor)||0, data:formA.data};
+                  updateCrm(cliId, {produtosVendidos:[...avulsas, item]});
+                  showToast(`Venda de ${p.nome} registrada!`);
+                }}>+ Registrar venda avulsa</button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── PRODUTOS NEGOCIADOS DE UM LEAD (seção do modal do Kanban) ──
+  function LeadProdutos({form, lead}) {
+    const catalogo = dataKanban?.produtos || [];
+    const [f, setF] = useState({produtoId:"", valor:"", parcelas:3});
+    const prods = form.produtosNegociados || [];
+    const total = prods.reduce((a,p)=>a+(parseFloat(p.valor)||0),0);
+
+    const setProds = (arr) => {
+      const atualizado = { ...form, produtosNegociados: arr };
+      setKanbanEditForm(atualizado);
+      updateKanban(d=>{
+        const idx = d.leads.findIndex(l=>l.id===lead.id);
+        if (idx>=0) d.leads[idx] = { ...d.leads[idx], produtosNegociados: arr };
+        return d;
+      });
+    };
+
+    return (
+      <div className="modal-section">
+        <div className="modal-section-title">
+          Produtos negociados
+          {prods.length>0 && <span style={{marginLeft:8,fontSize:10,color:"#1a6e1a",fontWeight:600,textTransform:"none"}}>{prods.length} produto(s) · {fmt(total)}/mês</span>}
+        </div>
+        {prods.length===0
+          ? <div style={{fontSize:12,color:"var(--muted)",fontStyle:"italic"}}>Nenhum produto negociado ainda.</div>
+          : <div className="cli-list compact">
+              {prods.map(p=>{
+                const par = parseInt(p.parcelas)||0;
+                return (
+                  <div className="cli-row" key={p.id}>
+                    <div className="cli-row-main">
+                      <span className="cli-row-nome">{p.nome}</span>
+                      <span className="cli-row-sub">{par===0?"recorrente":`${par} ${par===1?"mês":"meses"}`}</span>
+                    </div>
+                    <div className="cli-row-actions">
+                      <span className="badge b-g">{fmt(parseFloat(p.valor)||0)}/mês</span>
+                      <button className="btn-rm" onClick={()=>setProds(prods.filter(x=>x.id!==p.id))}>×</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+        }
+        {catalogo.length===0 ? (
+          <div style={{fontSize:11,color:"var(--warn)"}}>Cadastre produtos no menu <strong>Produtos 🛒</strong> para negociar aqui.</div>
+        ) : (
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+            <div className="fl" style={{flex:1,minWidth:140}}><label className="flabel">Produto</label>
+              <select className="fi" value={f.produtoId} onChange={e=>{
+                const p = catalogo.find(x=>x.id===e.target.value);
+                setF(x=>({...x, produtoId:e.target.value, valor: p ? p.valor : x.valor}));
+              }}>
+                <option value="">— selecione —</option>
+                {catalogo.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select></div>
+            <div className="fl" style={{width:110}}><label className="flabel">Valor/mês</label>
+              <input className="fi" type="number" value={f.valor} onChange={e=>setF(x=>({...x,valor:e.target.value}))}/></div>
+            <div className="fl" style={{width:130}}><label className="flabel">Quanto tempo</label>
+              <select className="fi" value={f.parcelas} onChange={e=>setF(x=>({...x,parcelas:parseInt(e.target.value)}))}>
+                {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
+                <option value={0}>Recorrente</option>
+              </select></div>
+            <button className="btn btn-p btn-sm" style={{marginBottom:1}} onClick={()=>{
+              const p = catalogo.find(x=>x.id===f.produtoId);
+              if(!p){alert("Selecione um produto.");return;}
+              setProds([...prods, {id:"ln_"+Date.now(), produtoId:p.id, nome:p.nome, valor:parseFloat(f.valor)||0, parcelas:f.parcelas}]);
+            }}>+ Add</button>
+          </div>
+        )}
+        <div style={{fontSize:11,color:"var(--muted)"}}>
+          Ao mover para <strong>Fechou</strong>, estes produtos entram como a receita mensal do cliente (início no mês de início acima). Sem produtos, vale o valor mensal do contrato. A geração de contrato continua usando o valor e a duração de "Informações básicas".
         </div>
       </div>
     );
@@ -2401,6 +2621,17 @@ export default function App() {
       status: "ativo",
       vencimento: "",
     };
+    // Produtos negociados no Kanban viram os produtos contratados do cliente
+    // (quando existem, definem a receita mensal em vez do valor único acima)
+    const prods = (lead.produtosNegociados || []).map(p => ({
+      id: "cp_" + Math.random().toString(36).slice(2),
+      produtoId: p.produtoId || "",
+      nome: p.nome,
+      valor: parseFloat(p.valor) || 0,
+      inicio: parseInt(lead.mesInicio) || 0,
+      parcelas: parseInt(p.parcelas) || 0,
+    }));
+    if (prods.length) novoCliente.produtosContratados = prods;
     targetSet(prev => {
       const next = JSON.parse(JSON.stringify(prev));
       next.clientes.push(novoCliente);
@@ -2793,6 +3024,9 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
                 </div>
               </div>
 
+              {/* Produtos negociados */}
+              <LeadProdutos form={form} lead={lead}/>
+
               {/* Aviso de contrato - apenas na coluna "contrato_enviado" */}
               {form.coluna === "contrato_enviado" && (
                 <div className="modal-section">
@@ -3055,7 +3289,7 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
       {renderPainelDrawer()}
 
       {/* MODAL DE PRODUTOS DO CLIENTE */}
-      {prodCliId && <ProdutoClienteModal cliId={prodCliId} onClose={()=>setProdCliId(null)}/>}
+      {prodCliId && <ClienteProdutosModal cliId={prodCliId} onClose={()=>setProdCliId(null)}/>}
 
       {/* TOAST */}
       {toast && <div className="toast show">{toast}</div>}
