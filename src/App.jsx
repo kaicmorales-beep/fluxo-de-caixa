@@ -140,7 +140,7 @@ function cliMes(d, ano) {
   return a;
 }
 
-function calcFlow(d, ano, caixaOverride = null, prevD = null) {
+function calcFlow(d, ano, caixaOverride = null, prevD = null, extraRec = null) {
   const ms = ANOS_CONFIG[ano];
   const ge = gastosEmpMes(d, ano, prevD);
   const cm = cliMes(d, ano);
@@ -148,7 +148,8 @@ function calcFlow(d, ano, caixaOverride = null, prevD = null) {
   return ms.map((mes, i) => {
     const gp = d.gastosPessoal[i] || 0;
     const gastos = gp + ge[i];
-    const ba = d.banda[i] || 0, cl = cm[i] || 0;
+    // extraRec = vendas avulsas do mês (entram na coluna Receitas)
+    const ba = d.banda[i] || 0, cl = (cm[i] || 0) + (extraRec ? (extraRec[i] || 0) : 0);
     const entradas = ba + cl;
     const saldo = entradas - gastos;
     cx += saldo;
@@ -787,10 +788,39 @@ export default function App() {
   if (!D) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"var(--muted)",fontFamily:"var(--sans)"}}>Carregando dados...</div>;
 
   const ms = ANOS_CONFIG[ano];
-  const carry26 = data26 ? calcFlow(data26, 2026) : null;
+
+  // ── VENDAS AVULSAS NO FLUXO ─────────────────────────────────
+  // Vendas avulsas (produtos vendidos pontualmente) entram como receita no mês da venda,
+  // identificadas pelo nome do cliente no Resumo do mês (controle de cobrança).
+  function avulsasDoAno(anoAlvo) {
+    const out = [];
+    const todosCli = [...(data26?.clientes||[]), ...(data27?.clientes||[])];
+    Object.entries(dataKanban?.crm || {}).forEach(([cliId, cr]) => {
+      (cr.produtosVendidos||[]).forEach(p => {
+        if (!p.data) return;
+        const [Y, M] = String(p.data).split("-").map(Number);
+        if (Y !== anoAlvo) return;
+        const mi = anoAlvo===2026 ? (M-1)-3 : (M-1); // 2026 começa em Abril
+        if (mi < 0 || mi >= ANOS_CONFIG[anoAlvo].length) return;
+        const cli = todosCli.find(c=>c.id===cliId);
+        out.push({ cliId, cliNome: cli?.nome || "Cliente", venda: p, mi, valor: parseFloat(p.valor)||0, recebido: !!p.recebido });
+      });
+    });
+    return out;
+  }
+  const avulsasMesArr = (anoAlvo) => {
+    const arr = Array(ANOS_CONFIG[anoAlvo].length).fill(0);
+    avulsasDoAno(anoAlvo).forEach(a=>{arr[a.mi]+=a.valor;});
+    return arr;
+  };
+  const av26Arr = avulsasMesArr(2026);
+  const avAnoAtual = avulsasDoAno(ano);
+  const avArr = ano===2026 ? av26Arr : avulsasMesArr(2027);
+
+  const carry26 = data26 ? calcFlow(data26, 2026, null, null, av26Arr) : null;
   const carryover = ano === 2027 && carry26 ? carry26[carry26.length-1].caixa : null;
   const prevD = ano === 2027 ? data26 : null;
-  const fl = calcFlow(D, ano, carryover, prevD);
+  const fl = calcFlow(D, ano, carryover, prevD, avArr);
   const last = fl[fl.length-1];
   const minR = fl.reduce((a,r) => r.caixa < a.caixa ? r : a);
   const cm = cliMes(D, ano);
@@ -1353,8 +1383,18 @@ export default function App() {
       });
     });
 
-    const recPrev = recItens.reduce((a, r) => a + r.val, 0);
-    const recReal = recItens.filter(r => r.recebido).reduce((a, r) => a + r.val, 0);
+    // Vendas avulsas do mês (com nome do cliente, para controle de cobrança)
+    const avMesItens = avAnoAtual.filter(a => a.mi === mi);
+    const avPrev = avMesItens.reduce((a,x)=>a+x.valor,0);
+    const avReal = avMesItens.filter(x=>x.recebido).reduce((a,x)=>a+x.valor,0);
+    const toggleAvRecebido = (a) => {
+      const cr = getCrm(a.cliId);
+      const upd = (cr.produtosVendidos||[]).map(p=>p.id===a.venda.id?{...p, recebido:!p.recebido}:p);
+      updateCrm(a.cliId, {produtosVendidos: upd});
+    };
+
+    const recPrev = recItens.reduce((a, r) => a + r.val, 0) + avPrev;
+    const recReal = recItens.filter(r => r.recebido).reduce((a, r) => a + r.val, 0) + avReal;
     const despPrev = despItens.reduce((a, d) => a + d.val, 0);
     const despReal = despItens.filter(d => d.pago).reduce((a, d) => a + d.val, 0);
     const saldoPrev = recPrev - despPrev;
@@ -1372,7 +1412,9 @@ export default function App() {
         const ini = parseInt(ct.inicio), par = parseInt(ct.parcelas);
         if (k >= ini && (par === 0 || (k - ini) < par) && ct.pagos && ct.pagos[k]) dd += valEff(ct, k);
       }));
-      return r - dd;
+      // vendas avulsas recebidas no mês k
+      const av = avAnoAtual.filter(a=>a.mi===k && a.recebido).reduce((a,x)=>a+x.valor,0);
+      return r - dd + av;
     };
     let saldoAnterior = 0;
     for (let k = 0; k < mi; k++) saldoAnterior += realizadoMes(k);
@@ -1457,6 +1499,29 @@ export default function App() {
                   </div>
                 ))}
               </div>
+            )}
+
+            {/* VENDAS AVULSAS DO MÊS — nome do cliente para cobrança */}
+            {avMesItens.length>0 && (
+              <>
+                <div className="sec-label" style={{marginTop:16}}>
+                  Vendas avulsas · {avMesItens.filter(a=>a.recebido).length}/{avMesItens.length} recebidas · {fmt(avPrev)}
+                </div>
+                <div className="cli-list compact">
+                  {avMesItens.map(a=>(
+                    <div className="cli-row" key={"av"+a.venda.id}>
+                      <div className="cli-row-main">
+                        <span className="cli-row-nome">{a.cliNome}</span>
+                        <span className="cli-row-sub">🛒 {a.venda.nome}</span>
+                      </div>
+                      <span className="badge b-g" style={{cursor:"pointer"}} title="Abrir produtos do cliente" onClick={()=>setProdCliId(a.cliId)}>{fmt(a.valor)}</span>
+                      <button className={`pill-tog ${a.recebido?"on":"off"}`} onClick={()=>toggleAvRecebido(a)}>
+                        {a.recebido?"✓ Recebido":"Não recebido"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
           {/* A PAGAR */}
@@ -1880,7 +1945,9 @@ export default function App() {
                   : r.venc==="amarelo" ? {border:"1.5px solid #e0c880",background:"var(--warn-bg)"}
                   : {borderColor:(g?.brd)||"var(--border)"};
                 return (
-                  <div key={r.c.id||ri} className="card" style={{...vencStyle,display:"flex",flexDirection:"column",gap:6}}>
+                  <div key={r.c.id||ri} className="card" style={{...vencStyle,display:"flex",flexDirection:"column",gap:6,cursor:"pointer"}}
+                    title="Clique para ver os produtos comprados"
+                    onClick={()=>setProdCliId(r.c.id)}>
                     <div style={{display:"flex",alignItems:"center",gap:6}}>
                       <div style={{width:8,height:8,borderRadius:"50%",background:g?.cor||"#888",flexShrink:0}}/>
                       <span style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}} title={r.c.nome}>{r.c.nome}</span>
@@ -1906,7 +1973,7 @@ export default function App() {
                         Início {fmtInicio(r.di)} — definido pelos produtos contratados
                       </div>
                     ) : (
-                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}} onClick={e=>e.stopPropagation()}>
                         <label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".05em",flexShrink:0}}>Início</label>
                         <input className="dw-in" type="date" style={{padding:"4px 7px",fontSize:12}}
                           value={crmDataISO(r)}
@@ -1914,11 +1981,11 @@ export default function App() {
                       </div>
                     )}
                     <div style={{display:"flex",gap:6,marginTop:2}}>
-                      <button className="btn btn-p btn-sm" onClick={()=>setProdCliId(r.c.id)}>
+                      <button className="btn btn-p btn-sm" onClick={e=>{e.stopPropagation();setProdCliId(r.c.id);}}>
                         🛒 Produtos{(r.nContratados+r.nProd)>0?` (${r.nContratados+r.nProd})`:""}
                       </button>
                       <button className="btn btn-sm"
-                        onClick={()=>{setPainelDrawerId(r.c.id);setPainelHistText("");}}>Ver detalhes →</button>
+                        onClick={e=>{e.stopPropagation();setPainelDrawerId(r.c.id);setPainelHistText("");}}>Ver detalhes →</button>
                     </div>
                   </div>
                 );
@@ -2424,6 +2491,7 @@ export default function App() {
                       <div className="cli-row" key={p.id} style={{flexWrap:"wrap",rowGap:6}}>
                         <div className="cli-row-main" style={{minWidth:130}}>
                           <span className="cli-row-nome">{p.nome}</span>
+                          {p.renovacaoDe && <span className="badge b-g" title="Período de renovação">↻ renovação</span>}
                           {iniIdx<0 && <span className="badge b-w" title="Começou antes da janela do fluxo — os meses retroativos contam no LTV e consomem a duração">retroativo</span>}
                         </div>
                         <div className="cli-row-actions" style={{flexWrap:"wrap",rowGap:6}}>
@@ -2442,6 +2510,15 @@ export default function App() {
                             <option value={0}>Recorrente</option>
                           </select>
                           <span className="cli-row-sub" style={{minWidth:86}}>{fimDate?`até ${fmtYM(fimDate)}`:"sem fim"}</span>
+                          {par>0 && (
+                            <button className="btn btn-sm" style={{color:"#1a6e1a",borderColor:"#b0d4b0"}}
+                              title={`Renovar: novo período de ${par} ${par===1?"mês":"meses"} começando após o término (soma no fluxo e no LTV)`}
+                              onClick={()=>{
+                                const novo = {id:"cp_"+Date.now(), produtoId:p.produtoId||"", nome:p.nome, valor:parseFloat(p.valor)||0, inicio:iniIdx+par, parcelas:par, renovacaoDe:p.id};
+                                updateCli(cc=>{cc.produtosContratados=[...(cc.produtosContratados||[]), novo];});
+                                showToast(`${p.nome} renovado por mais ${par} ${par===1?"mês":"meses"}!`);
+                              }}>↻ Renovar</button>
+                          )}
                           <button className="btn-rm" onClick={()=>{if(confirm(`Remover "${p.nome}" deste cliente?`))updateCli(cc=>{cc.produtosContratados=(cc.produtosContratados||[]).filter(x=>x.id!==p.id);});}}>×</button>
                         </div>
                       </div>
