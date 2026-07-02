@@ -241,13 +241,14 @@ async function loadKanbanFromDB(userId) {
     .eq("user_id", userId)
     .eq("ano", 0)
     .single();
-  if (error || !data) return { leads: [], crm: {} };
+  if (error || !data) return { leads: [], crm: {}, categoriasAnalise: [] };
   try {
     const d = data.dados;
     if (!Array.isArray(d.leads)) d.leads = [];
     if (!d.crm || typeof d.crm !== "object") d.crm = {};
+    if (!Array.isArray(d.categoriasAnalise)) d.categoriasAnalise = [];
     return d;
-  } catch { return { leads: [], crm: {} }; }
+  } catch { return { leads: [], crm: {}, categoriasAnalise: [] }; }
 }
 
 // ── STYLES ───────────────────────────────────────────────────
@@ -424,6 +425,13 @@ const S = `
   .google-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:12px 20px;border-radius:9px;border:1px solid var(--border2);background:var(--white);font-size:14px;font-weight:500;color:var(--text);cursor:pointer;transition:all .15s}
   .google-btn:hover{border-color:var(--green);background:var(--green-bg)}
   .google-icon{width:20px;height:20px}
+
+  /* EDIT MODAL (80% da tela) */
+  .edit-modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:250;display:flex;align-items:center;justify-content:center;padding:20px}
+  .edit-modal{width:80vw;height:80vh;max-width:1100px;background:var(--bg);border-radius:14px;overflow-y:auto;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,.28);animation:dwin .16s ease;display:flex;flex-direction:column}
+  .edit-modal .form-wrap{margin-bottom:0}
+  .edit-modal-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .edit-modal-title{font-size:17px;font-weight:600}
 
   /* MODAL */
   .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100;display:flex;align-items:center;justify-content:center}
@@ -684,7 +692,7 @@ export default function App() {
   const saveKanbanData = useCallback(async (kdata) => {
     if (!session) return;
     try {
-      await saveToDB(session.user.id, 0, { leads: kdata.leads || [], crm: kdata.crm || {} });
+      await saveToDB(session.user.id, 0, { leads: kdata.leads || [], crm: kdata.crm || {}, categoriasAnalise: kdata.categoriasAnalise || [] });
     } catch (err) {
       console.error("[fluxo-caixa] Erro ao salvar kanban:", err?.message || err);
     }
@@ -692,7 +700,7 @@ export default function App() {
 
   function updateKanban(updater) {
     setDataKanban(prev => {
-      const next = updater(JSON.parse(JSON.stringify(prev || { leads: [], crm: {} })));
+      const next = updater(JSON.parse(JSON.stringify(prev || { leads: [], crm: {}, categoriasAnalise: [] })));
       saveKanbanData(next);
       return next;
     });
@@ -784,6 +792,8 @@ export default function App() {
       .flatMap(cat=>(cat.contas||[]).map(ct=>(ct.tag||"").trim()))
       .filter(Boolean)
   )).sort();
+  // Lista final para os selects: configuradas + já usadas
+  const catsAnalise = Array.from(new Set([...(dataKanban?.categoriasAnalise||[]), ...tagsDespesa])).sort();
 
   // ── FLUXO TABLE ────────────────────────────────────────────
   function renderFluxo() {
@@ -886,12 +896,6 @@ export default function App() {
               const ativaNoMes = empMes>=ini && (par===0||(empMes-ini)<par);
               if(!ativaNoMes) return null;
               const continuaProxAno = ano===2026 && par!==0 && ini+par>N_2026;
-              const isEditing = editingConta?.ci===empCard && editingConta?.cti===cti;
-
-              if (isEditing) return (
-                <EditContaForm key={cti} ci={empCard} cti={cti} conta={ct} onDone={()=>setEditingConta(null)}/>
-              );
-
               const atual = par===0 ? null : (empMes-ini+1);
               const pago = !!(ct.pagos&&ct.pagos[empMes]);
               const ovr = !!(ct.valorMes && ct.valorMes[empMes]!=null);
@@ -919,6 +923,21 @@ export default function App() {
               );
             })}
           </div>
+
+          {/* MODAL DE EDIÇÃO (80% da tela) */}
+          {editingConta!==null && D.categorias[editingConta.ci]?.contas[editingConta.cti] && (
+            <div className="edit-modal-ov" onClick={e=>{if(e.target===e.currentTarget)setEditingConta(null);}}>
+              <div className="edit-modal">
+                <div className="edit-modal-hdr">
+                  <div className="edit-modal-title">Editar despesa</div>
+                  <button className="dw-x" onClick={()=>setEditingConta(null)} title="Fechar">×</button>
+                </div>
+                <EditContaForm ci={editingConta.ci} cti={editingConta.cti}
+                  conta={D.categorias[editingConta.ci].contas[editingConta.cti]}
+                  onDone={()=>setEditingConta(null)}/>
+              </div>
+            </div>
+          )}
         </>
       );
     }
@@ -987,6 +1006,26 @@ export default function App() {
           const cores=["#c0392b","#d67e20","#8e44ad","#1a5fa0","#1a7a4a","#806020","#305090"];
           update(d=>{d.categorias.push({id:"cat_"+Date.now(),nome:nome.trim(),cor:cores[d.categorias.length%cores.length],contas:[]});return d;});
         }}>+ Novo grupo</button>
+
+        {/* CONFIGURAÇÃO DAS CATEGORIAS DE ANÁLISE */}
+        <div className="sec-label">Categorias de análise ⚙️</div>
+        <div style={{fontSize:12,color:"var(--muted)",marginBottom:8}}>Categorias usadas para classificar as contas de qualquer grupo. Clique numa categoria para removê-la da lista.</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:4}}>
+          {(dataKanban?.categoriasAnalise||[]).map(t=>(
+            <span key={t} className="pn-sem" style={{background:"#eef4fb",color:"#1a4a7a",cursor:"pointer"}} title="Clique para remover da lista"
+              onClick={()=>{if(confirm(`Remover a categoria "${t}" da lista? (as contas já classificadas não são alteradas)`))updateKanban(d=>{d.categoriasAnalise=(d.categoriasAnalise||[]).filter(x=>x!==t);return d;});}}>
+              {t} ✕
+            </span>
+          ))}
+          {tagsDespesa.filter(t=>!(dataKanban?.categoriasAnalise||[]).includes(t)).map(t=>(
+            <span key={"u"+t} className="pn-sem" style={{background:"var(--surface)",color:"var(--muted)"}} title="Em uso nas contas (não configurada)">{t}</span>
+          ))}
+          <button className="btn btn-sm" onClick={()=>{
+            const nome=prompt("Nome da nova categoria de análise:");
+            if(!nome||!nome.trim())return;
+            updateKanban(d=>{const arr=d.categoriasAnalise||[];if(!arr.includes(nome.trim()))d.categoriasAnalise=[...arr,nome.trim()].sort();return d;});
+          }}>+ Nova categoria</button>
+        </div>
 
         {/* GASTOS POR CATEGORIA (análise) */}
         {(()=>{
@@ -1116,8 +1155,6 @@ export default function App() {
               const ativaNoMes = atvMes>=ini && (par===0||(atvMes-ini)<par);
               if(!ativaNoMes) return null;
 
-              if(editingIdx===i) return <EditItemForm key={i} idx={i} item={c} onDone={()=>setEditingIdx(null)}/>;
-
               const atual = par===0 ? null : (atvMes-ini+1);
               const rec = !!(c.recebidos&&c.recebidos[atvMes]);
               const ovr = !!(c.valorMes && c.valorMes[atvMes]!=null);
@@ -1145,6 +1182,19 @@ export default function App() {
               );
             })}
           </div>
+
+          {/* MODAL DE EDIÇÃO (80% da tela) */}
+          {editingIdx!==null && D.clientes[editingIdx] && (
+            <div className="edit-modal-ov" onClick={e=>{if(e.target===e.currentTarget)setEditingIdx(null);}}>
+              <div className="edit-modal">
+                <div className="edit-modal-hdr">
+                  <div className="edit-modal-title">Editar receita</div>
+                  <button className="dw-x" onClick={()=>setEditingIdx(null)} title="Fechar">×</button>
+                </div>
+                <EditItemForm idx={editingIdx} item={D.clientes[editingIdx]} onDone={()=>setEditingIdx(null)}/>
+              </div>
+            </div>
+          )}
 
           {items.some(c=>c.status==="ativo")&&(
             <>
@@ -1707,20 +1757,29 @@ export default function App() {
       return new Date(yr, mes0, 1);
     };
 
+    const addM = (d, n) => new Date(d.getFullYear(), d.getMonth()+n, 1);
+    const mIdx = (d) => d.getFullYear()*12 + d.getMonth();
+
     const rows = entradas.map(({c, yr}) => {
       const crm = getCrm(c.id);
-      const di = crm.dataEntrada ? new Date(crm.dataEntrada+"T00:00:00") : defInicio(c, yr);
-      const diValida = !isNaN(di);
-      // Meses decorridos do início até o mês atual (inclusive)
-      let meses = diValida ? (hoje.getFullYear()-di.getFullYear())*12 + (hoje.getMonth()-di.getMonth()) + 1 : 0;
-      if (meses < 0) meses = 0;
+      // Início do contrato: data informada no card (CRM) ou derivada do cadastro da receita
+      const diRaw = crm.dataEntrada ? new Date(crm.dataEntrada+"T00:00:00") : defInicio(c, yr);
+      const di = isNaN(diRaw) ? defInicio(c, yr) : diRaw;
       const par = parseInt(c.parcelas)||0;
+      // Término = início + parcelas (bate com o cronograma da receita); recorrente não vence
+      const fim = par>0 ? addM(di, par-1) : null;
+      // Meses decorridos do início até o mês atual (inclusive), limitado ao contrato
+      let meses = mIdx(hoje) - mIdx(di) + 1;
+      if (meses < 0) meses = 0;
       const mesesAtivos = par===0 ? meses : Math.min(meses, par);
       const valor = parseFloat(c.valor)||0;
       const ltv = mesesAtivos * valor;
       const ltvContrato = par===0 ? null : par * valor; // valor total previsto do contrato
-      const encerrado = par!==0 && meses >= par;
-      return { c, yr, crm, di: diValida ? di : null, mesesAtivos, valor, ltv, ltvContrato, encerrado };
+      const mesesRestantes = fim ? mIdx(fim) - mIdx(hoje) : null; // null = recorrente
+      const encerrado = fim ? mesesRestantes < 0 : false;
+      // Semáforo de renovação: vermelho = vence este mês | amarelo = vence em até 2 meses
+      const venc = !fim ? "none" : mesesRestantes < 0 ? "past" : mesesRestantes === 0 ? "vermelho" : mesesRestantes <= 2 ? "amarelo" : "ok";
+      return { c, yr, crm, di, fim, mesesAtivos, mesesRestantes, valor, ltv, ltvContrato, encerrado, venc };
     });
 
     const view = rows.filter(r => {
@@ -1736,6 +1795,7 @@ export default function App() {
     const ticketMedio = ativos.length ? ativos.reduce((a,r)=>a+r.valor,0)/ativos.length : 0;
     const tempoMedio = rows.length ? rows.reduce((a,r)=>a+r.mesesAtivos,0)/rows.length : 0;
     const mrrAtivo = ativos.reduce((a,r)=>a+r.valor, 0);
+    const aRenovar = rows.filter(r => r.venc === "vermelho" || r.venc === "amarelo").length;
 
     const dataISO = (d) => d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` : "";
     const fmtInicio = (d) => d ? `${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}` : "—";
@@ -1759,6 +1819,7 @@ export default function App() {
           <div className="card"><div className="stat-lbl">Ticket médio</div><div className="stat-val">{fmt(ticketMedio)}</div><div className="stat-sub">mensal · ativos</div></div>
           <div className="card"><div className="stat-lbl">Tempo médio</div><div className="stat-val">{tempoMedio.toFixed(1)}</div><div className="stat-sub">meses de contrato</div></div>
           <div className="card"><div className="stat-lbl">Receita mensal ativa</div><div className="stat-val pos">{fmt(mrrAtivo)}</div><div className="stat-sub">soma dos ativos</div></div>
+          <div className="card" style={aRenovar?{borderColor:"#e0c880",background:"var(--warn-bg)"}:{}}><div className="stat-lbl">A renovar</div><div className="stat-val" style={{color:aRenovar?"var(--warn)":"var(--text)"}}>{aRenovar}</div><div className="stat-sub">vencendo em até 2 meses</div></div>
         </div>
 
         <div className="pn-filters">
@@ -1775,8 +1836,11 @@ export default function App() {
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))",gap:12,marginBottom:20}}>
               {view.map((r,ri)=>{
                 const g = GRUPOS.find(g=>g.key===(r.c.tipoReceita||"cliente"));
+                const vencStyle = r.venc==="vermelho" ? {border:"1.5px solid #d08080",background:"var(--red-bg)"}
+                  : r.venc==="amarelo" ? {border:"1.5px solid #e0c880",background:"var(--warn-bg)"}
+                  : {borderColor:(g?.brd)||"var(--border)"};
                 return (
-                  <div key={r.c.id||ri} className="card" style={{borderColor:(g?.brd)||"var(--border)",display:"flex",flexDirection:"column",gap:6}}>
+                  <div key={r.c.id||ri} className="card" style={{...vencStyle,display:"flex",flexDirection:"column",gap:6}}>
                     <div style={{display:"flex",alignItems:"center",gap:6}}>
                       <div style={{width:8,height:8,borderRadius:"50%",background:g?.cor||"#888",flexShrink:0}}/>
                       <span style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}} title={r.c.nome}>{r.c.nome}</span>
@@ -1784,10 +1848,15 @@ export default function App() {
                         ? <span className="badge b-gray">Encerrado</span>
                         : r.c.status!=="ativo" && <span className={`badge ${SBADGE[r.c.status]||"b-gray"}`}>{SLBL[r.c.status]||r.c.status}</span>}
                     </div>
+                    {r.venc==="vermelho" && <span className="pn-chip danger" style={{alignSelf:"flex-start"}}>🔴 Vence este mês — renovar contrato!</span>}
+                    {r.venc==="amarelo" && <span className="pn-chip warn" style={{alignSelf:"flex-start"}}>🟡 Vence em {r.mesesRestantes} {r.mesesRestantes===1?"mês":"meses"}</span>}
                     <div style={{fontSize:22,fontWeight:700,fontFamily:"var(--mono)",color:"#1a6e1a"}}>{fmt(r.ltv)}</div>
                     <div style={{fontSize:11,color:"var(--muted)"}}>
                       {fmt(r.valor)}/mês × {r.mesesAtivos} {r.mesesAtivos===1?"mês":"meses"}
                       {r.ltvContrato!=null && <> · contrato: {fmt(r.ltvContrato)}</>}
+                    </div>
+                    <div style={{fontSize:11,color:r.venc==="vermelho"?"var(--red)":r.venc==="amarelo"?"var(--warn)":"var(--muted)",fontWeight:r.venc==="vermelho"||r.venc==="amarelo"?600:400}}>
+                      Término: {r.fim ? fmtInicio(r.fim) : "recorrente (sem fim)"}
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
                       <label style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".05em",flexShrink:0}}>Início</label>
@@ -1810,6 +1879,7 @@ export default function App() {
                   <th style={{textAlign:"left"}}>Cliente</th>
                   <th style={{textAlign:"center"}}>Ano</th>
                   <th style={{textAlign:"center"}}>Início</th>
+                  <th style={{textAlign:"center"}}>Término</th>
                   <th>Meses</th>
                   <th>Valor mensal</th>
                   <th>LTV acumulado</th>
@@ -1818,10 +1888,14 @@ export default function App() {
                 </tr></thead>
                 <tbody>
                   {view.map((r,ri)=>(
-                    <tr key={"t"+(r.c.id||ri)} className="pn-row" onClick={()=>{setPainelDrawerId(r.c.id);setPainelHistText("");}}>
+                    <tr key={"t"+(r.c.id||ri)} className="pn-row" onClick={()=>{setPainelDrawerId(r.c.id);setPainelHistText("");}}
+                      style={r.venc==="vermelho"?{background:"var(--red-bg)"}:r.venc==="amarelo"?{background:"var(--warn-bg)"}:{}}>
                       <td className="pn-cli"><div className="pn-cli-nome">{r.c.nome}</div><div className="pn-cli-sub">{GRUPOS.find(g=>g.key===(r.c.tipoReceita||"cliente"))?.label||"—"}</div></td>
                       <td className="pn-td">{r.yr}</td>
                       <td className="pn-td">{fmtInicio(r.di)}</td>
+                      <td className="pn-td" style={r.venc==="vermelho"?{color:"var(--red)",fontWeight:600}:r.venc==="amarelo"?{color:"var(--warn)",fontWeight:600}:{}}>
+                        {r.fim?fmtInicio(r.fim):"—"}{r.venc==="vermelho"?" 🔴":r.venc==="amarelo"?" 🟡":""}
+                      </td>
                       <td className="td-n">{r.mesesAtivos}</td>
                       <td className="td-n">{fmt(r.valor)}</td>
                       <td className="td-s pos">{fmt(r.ltv)}</td>
@@ -1831,7 +1905,7 @@ export default function App() {
                   ))}
                   <tr style={{background:"var(--surface)",borderTop:"2px solid var(--border2)"}}>
                     <td className="td-m" style={{fontSize:11,fontWeight:600,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".06em"}}>Total ({view.length})</td>
-                    <td/><td/>
+                    <td/><td/><td/>
                     <td className="td-n" style={{fontWeight:600}}>{view.reduce((a,r)=>a+r.mesesAtivos,0)}</td>
                     <td className="td-n" style={{fontWeight:600}}>{fmt(view.reduce((a,r)=>a+r.valor,0))}</td>
                     <td className="td-s pos" style={{fontWeight:700}}>{fmt(view.reduce((a,r)=>a+r.ltv,0))}</td>
@@ -1887,8 +1961,11 @@ export default function App() {
                 {D.categorias.map((c,i)=><option key={i} value={i}>{c.nome}</option>)}
               </select></div>
             <div className="fl"><label className="flabel">Categoria (análise)</label>
-              <input className="fi" list="tags-despesa" value={form.tag} onChange={e=>setForm(p=>({...p,tag:e.target.value}))} placeholder="Ex: Software, Marketing"/>
-              <datalist id="tags-despesa">{tagsDespesa.map(t=><option key={t} value={t}/>)}</datalist></div>
+              <select className="fi" value={form.tag} onChange={e=>setForm(p=>({...p,tag:e.target.value}))}>
+                <option value="">— selecione —</option>
+                {catsAnalise.map(t=><option key={t} value={t}>{t}</option>)}
+              </select>
+              <span style={{fontSize:10,color:"var(--muted)"}}>Configure as categorias na aba Despesas</span></div>
             <div className="fl"><label className="flabel">Valor (R$)</label><input className="fi" type="number" value={form.valor} onChange={e=>setForm(p=>({...p,valor:e.target.value}))} placeholder="500"/></div>
             <div className="fl"><label className="flabel">Mês de início</label>
               <select className="fi" value={form.inicio} onChange={e=>setForm(p=>({...p,inicio:parseInt(e.target.value)}))}>
@@ -1939,8 +2016,10 @@ export default function App() {
               {D.categorias.map((c,i)=><option key={i} value={i}>{c.nome}</option>)}
             </select></div>
           <div className="fl"><label className="flabel">Categoria (análise)</label>
-            <input className="fi" list="tags-despesa-edit" value={form.tag} onChange={e=>setForm(p=>({...p,tag:e.target.value}))} placeholder="Ex: Software, Marketing"/>
-            <datalist id="tags-despesa-edit">{tagsDespesa.map(t=><option key={t} value={t}/>)}</datalist></div>
+            <select className="fi" value={form.tag} onChange={e=>setForm(p=>({...p,tag:e.target.value}))}>
+              <option value="">— selecione —</option>
+              {catsAnalise.map(t=><option key={t} value={t}>{t}</option>)}
+            </select></div>
           <div className="fl"><label className="flabel">Valor (R$)</label>
             <input className="fi" type="number" value={form.valor} onChange={e=>setForm(p=>({...p,valor:e.target.value}))}/></div>
           <div className="fl"><label className="flabel">Mês de início</label>
