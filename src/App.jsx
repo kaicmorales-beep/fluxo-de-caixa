@@ -309,49 +309,57 @@ const S = `
     --green:#2d6a2d;--green-bg:#eaf4ea;--green-dark:#1e4a1e;
     --red:#b03030;--red-bg:#fdf0f0;
     --warn:#8a5c00;--warn-bg:#fdf6e8;
-    --mono:'JetBrains Mono',monospace;--sans:'Inter',sans-serif;--r:10px;
+    --mono:'JetBrains Mono',monospace;--sans:'Inter',sans-serif;--r:13px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5}
   input,select,button{font-family:var(--sans)}
   .pos{color:#1a6e1a}.neg{color:var(--red)}.neu{color:var(--warn)}.dim{color:var(--muted2)}
 
-  /* TOPBAR */
-  .topbar{background:var(--white);border-bottom:1px solid var(--border);height:52px;padding:0 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:20;gap:12px}
-  .brand{font-size:15px;font-weight:600;letter-spacing:-.01em;white-space:nowrap}
+  /* PAGE HEADER (título da página + controles) */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .page-hdr{background:var(--white);border-bottom:1px solid var(--border);padding:14px 26px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;position:sticky;top:0;z-index:20}
+  .ph-title{font-size:20px;font-weight:700;letter-spacing:-.02em;display:flex;align-items:center;gap:6px}
+  .ph-sub{font-size:12.5px;color:var(--muted);margin-top:1px}
   .hdr-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .hdr-stats{display:flex;gap:16px}
   .hdr-stat{display:flex;flex-direction:column;align-items:flex-end}
   .hdr-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
   .hdr-val{font-size:15px;font-weight:600;font-family:var(--mono)}
-  .yr-sw{display:flex;border:1px solid var(--border2);border-radius:7px;overflow:hidden}
-  .yr-btn{padding:5px 13px;font-size:12px;font-weight:500;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .12s}
+  .yr-sw{display:flex;border:1px solid var(--border2);border-radius:9px;overflow:hidden}
+  .yr-btn{padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .12s}
   .yr-btn.on{background:var(--green);color:#fff}
   .user-chip{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
-  .avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid var(--border)}
-  .avatar-fallback{width:28px;height:28px;border-radius:50%;background:var(--green-bg);color:var(--green-dark);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:1px solid var(--border)}
+  .avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid var(--border)}
+  .avatar-fallback{width:30px;height:30px;border-radius:50%;background:var(--green-bg);color:var(--green-dark);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:1px solid var(--border)}
 
   /* LAYOUT + SIDEBAR */
-  .layout{display:flex;align-items:stretch;min-height:calc(100vh - 52px)}
-  .sidebar{width:190px;flex-shrink:0;background:var(--white);border-right:1px solid var(--border);padding:10px 8px;display:flex;flex-direction:column;gap:2px;position:sticky;top:52px;height:calc(100vh - 52px);overflow-y:auto;overflow-x:hidden;transition:width .18s ease}
-  .sidebar.closed{width:52px}
-  .sb-toggle{display:flex;align-items:center;justify-content:center;border:1px solid var(--border2);background:var(--white);color:var(--muted);border-radius:7px;cursor:pointer;font-size:12px;padding:6px;margin-bottom:8px;transition:all .12s}
+  .layout{display:flex;align-items:stretch;min-height:100vh}
+  .sidebar{width:210px;flex-shrink:0;background:var(--white);border-right:1px solid var(--border);padding:16px 12px;display:flex;flex-direction:column;gap:3px;position:sticky;top:0;height:100vh;overflow-y:auto;overflow-x:hidden;transition:width .18s ease}
+  .sidebar.closed{width:60px;padding:16px 9px}
+  .sb-brand{display:flex;align-items:center;gap:9px;padding:0 4px 14px;border-bottom:1px solid var(--border);margin-bottom:12px;overflow:hidden}
+  .sb-logo{width:32px;height:32px;border-radius:9px;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;letter-spacing:-.03em}
+  .sb-brand-name{font-size:13.5px;font-weight:700;letter-spacing:.01em;line-height:1.15;white-space:nowrap}
+  .sb-brand-sub{font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.18em;white-space:nowrap}
+  .sb-toggle{display:flex;align-items:center;justify-content:center;border:1px solid var(--border2);background:var(--white);color:var(--muted);border-radius:9px;cursor:pointer;font-size:12px;padding:7px;margin-bottom:10px;transition:all .12s}
   .sb-toggle:hover{border-color:var(--green);color:var(--green)}
-  .sb-item{display:flex;align-items:center;gap:9px;padding:9px 10px;border:none;background:none;border-radius:7px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;text-align:left;white-space:nowrap;overflow:hidden;transition:background .12s,color .12s}
+  .sb-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border:none;background:none;border-radius:10px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;text-align:left;white-space:nowrap;overflow:hidden;transition:background .12s,color .12s}
   .sb-item:hover{background:var(--surface);color:var(--text)}
-  .sb-item.on{background:var(--green-bg);color:var(--green-dark);font-weight:600}
+  .sb-item.on{background:var(--green);color:#fff;font-weight:600;box-shadow:0 2px 8px rgba(45,106,45,.25)}
   .sb-ico{font-size:16px;flex-shrink:0;width:20px;text-align:center}
   .sb-lbl{overflow:hidden;text-overflow:ellipsis}
 
   /* CONTENT */
-  .content{padding:20px;width:100%;min-width:0;box-sizing:border-box}
+  .content{padding:24px 26px;width:100%;min-width:0;box-sizing:border-box}
 
   /* CARDS */
-  .card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:16px}
+  .card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
   .cards-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}
   .stat-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
   .stat-val{font-size:20px;font-weight:600;font-family:var(--mono);letter-spacing:-.02em}
   .stat-sub{font-size:11px;color:var(--muted);margin-top:2px}
+  .stat-card{display:flex;align-items:center;gap:13px}
+  .stat-ico{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:700;flex-shrink:0}
 
   /* ALERT */
   .alert{border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;display:flex;align-items:flex-start;gap:8px;line-height:1.5}
@@ -491,7 +499,8 @@ const S = `
   @media(max-width:900px){
     .hdr-stats{display:none}
     .content{padding:12px}
-    .topbar{padding:0 12px;gap:8px}
+    .page-hdr{padding:10px 12px;gap:8px}
+    .ph-title{font-size:16px}
     thead th{padding:7px 6px;font-size:9px}
     .td-m{padding:8px 8px;font-size:12px}
     .td-n{padding:8px 6px;font-size:11px}
@@ -500,9 +509,7 @@ const S = `
   }
   @media(max-width:600px){
     .content{padding:8px}
-    .topbar{height:44px}
-    .layout{min-height:calc(100vh - 44px)}
-    .sidebar{top:44px;height:calc(100vh - 44px)}
+    .page-hdr{padding:8px 10px}
   }
 
   /* KANBAN */
@@ -885,6 +892,20 @@ export default function App() {
     {id:"categorias", label:"Categorias", icon:"🏷️"},
   ];
 
+  // Título e subtítulo exibidos no header da página, por aba
+  const TAB_META = {
+    fluxo:       {t:"Fluxo de Caixa",    s:"Acompanhe entradas, saídas e o saldo do seu caixa."},
+    empresa:     {t:"Despesas",          s:"Grupos de contas que alimentam o fluxo automaticamente."},
+    "add-conta": {t:"Adicionar conta",   s:"Defina nome, grupo, categoria de análise, valor e parcelas."},
+    clientes:    {t:"Adicionar receita", s:"Cadastre o cliente — os produtos você configura em seguida."},
+    ativos:      {t:"Receitas",          s:"Clientes e vendas que geram entrada, mês a mês."},
+    ltv:         {t:"LTV de Clientes",   s:"Lifetime Value do início do contrato até o mês atual."},
+    kanban:      {t:"Kanban",            s:"Pipeline de prospecção — arraste os leads entre as etapas."},
+    produtos:    {t:"Produtos",          s:"Catálogo de produtos vendidos aos clientes."},
+    comissoes:   {t:"Comissões",         s:"Pagamentos de colaboradores atrelados aos produtos vendidos."},
+    categorias:  {t:"Categorias",        s:"Classificação de análise das contas de despesa."},
+  };
+
   // Categorias de análise já usadas nas contas (sugestões para o campo)
   const tagsDespesa = Array.from(new Set(
     [...(data26?.categorias||[]), ...(data27?.categorias||[])]
@@ -1087,10 +1108,7 @@ export default function App() {
     return (
       <>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
-          <div>
-            <div className="pg-title">Despesas da empresa</div>
-            <div style={{fontSize:13,color:"var(--muted)"}}>Os totais alimentam automaticamente o fluxo.</div>
-          </div>
+          <div className="sec-label" style={{margin:0}}>Grupos de contas</div>
           <button className="btn btn-p btn-sm" onClick={()=>setActiveTab("add-conta")}>+ Adicionar conta</button>
         </div>
 
@@ -1396,8 +1414,7 @@ export default function App() {
     return (
       <>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4,flexWrap:"wrap",gap:10}}>
-          <div><div className="pg-title" style={{marginBottom:2}}>Receitas</div>
-            <div className="pg-sub" style={{marginBottom:0}}>Clique em um grupo para ver e editar os itens.</div></div>
+          <div className="sec-label" style={{margin:0}}>Grupos de receita</div>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
             <span style={{fontSize:12,color:"var(--muted)"}}>Mês:</span>
             <button className="btn btn-sm" style={{padding:"5px 10px"}} disabled={atvMes===0} onClick={()=>setAtvMes(m=>m-1)}>‹</button>
@@ -1578,26 +1595,38 @@ export default function App() {
           </div>
         </div>
 
-        <div className="cards-row" style={{gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))"}}>
-          <div className="card">
-            <div className="stat-lbl">Saldo mês anterior</div>
-            <div className={`stat-val ${cc(saldoAnterior)}`}>{fmt(saldoAnterior)}</div>
-            <div className="stat-sub">{mi>0?`acumulado até ${ms[mi-1]}`:"sem mês anterior"}</div>
+        <div className="cards-row" style={{gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))"}}>
+          <div className="card stat-card">
+            <div className="stat-ico" style={{background:"var(--surface)",color:"var(--muted)"}}>◷</div>
+            <div>
+              <div className="stat-lbl">Saldo mês anterior</div>
+              <div className={`stat-val ${cc(saldoAnterior)}`}>{fmt(saldoAnterior)}</div>
+              <div className="stat-sub">{mi>0?`acumulado até ${ms[mi-1]}`:"sem mês anterior"}</div>
+            </div>
           </div>
-          <div className="card">
-            <div className="stat-lbl">Receitas recebidas</div>
-            <div className="stat-val pos">{fmt(recReal)}</div>
-            <div className="stat-sub">de {fmt(recPrev)} previsto{aReceber>0?` · a receber ${fmt(aReceber)}`:""}</div>
+          <div className="card stat-card">
+            <div className="stat-ico" style={{background:"var(--green-bg)",color:"var(--green-dark)"}}>↓</div>
+            <div>
+              <div className="stat-lbl">Receitas recebidas</div>
+              <div className="stat-val pos">{fmt(recReal)}</div>
+              <div className="stat-sub">de {fmt(recPrev)} previsto{aReceber>0?` · a receber ${fmt(aReceber)}`:""}</div>
+            </div>
           </div>
-          <div className="card">
-            <div className="stat-lbl">Despesas pagas</div>
-            <div className="stat-val neg">{fmt(despReal)}</div>
-            <div className="stat-sub">de {fmt(despPrev)} previsto{aPagar>0?` · a pagar ${fmt(aPagar)}`:""}</div>
+          <div className="card stat-card">
+            <div className="stat-ico" style={{background:"var(--red-bg)",color:"var(--red)"}}>↑</div>
+            <div>
+              <div className="stat-lbl">Despesas pagas</div>
+              <div className="stat-val neg">{fmt(despReal)}</div>
+              <div className="stat-sub">de {fmt(despPrev)} previsto{aPagar>0?` · a pagar ${fmt(aPagar)}`:""}</div>
+            </div>
           </div>
-          <div className="card">
-            <div className="stat-lbl">Saldo realizado (acum.)</div>
-            <div className={`stat-val ${cc(saldoRealAcum)}`}>{fmt(saldoRealAcum)}</div>
-            <div className="stat-sub">este mês: {fmt(saldoReal)} + anterior {fmt(saldoAnterior)}</div>
+          <div className="card stat-card">
+            <div className="stat-ico" style={{background:"var(--green-bg)",color:"var(--green-dark)"}}>$</div>
+            <div>
+              <div className="stat-lbl">Saldo realizado (acum.)</div>
+              <div className={`stat-val ${cc(saldoRealAcum)}`}>{fmt(saldoRealAcum)}</div>
+              <div className="stat-sub">este mês: {fmt(saldoReal)} + anterior {fmt(saldoAnterior)}</div>
+            </div>
           </div>
         </div>
 
@@ -2056,9 +2085,6 @@ export default function App() {
 
     return (
       <>
-        <div className="pg-title">LTV de Clientes</div>
-        <div className="pg-sub">Lifetime Value calculado do início do contrato até o mês atual ({String(hoje.getMonth()+1).padStart(2,"0")}/{hoje.getFullYear()}). Ajuste a data de início direto no card.</div>
-
         {/* KPIs */}
         <div className="cards-row" style={{gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))"}}>
           <div className="card"><div className="stat-lbl">Clientes</div><div className="stat-val">{rows.length}</div><div className="stat-sub">{ativos.length} ativo{ativos.length!==1?"s":""}</div></div>
@@ -2200,10 +2226,10 @@ export default function App() {
     if (activeTab === "fluxo") return (
       <>
         {ano===2027&&carryover!==null&&<div className="carry-banner">Caixa inicial herdado de dezembro/2026: <strong style={{fontFamily:"var(--mono)",marginLeft:4}}>{fmt(carryover)}</strong></div>}
+        {renderResumoMes()}
+        <hr className="dv"/>
         <div className="sec-label" style={{marginTop:0}}>Mês a mês</div>
         {renderFluxo()}
-        <hr className="dv"/>
-        {renderResumoMes()}
       </>
     );
     if (activeTab === "empresa") return renderEmpresa();
@@ -2222,8 +2248,6 @@ export default function App() {
     const [form, setForm] = useState({nome:"",catIdx:empCard??0,tag:"",valor:"",inicio:0,parcelas:0,vencimento:""});
     return (
       <>
-        <div className="pg-title">Adicionar conta</div>
-        <div className="pg-sub">Defina nome, grupo, categoria de análise, valor, mês de início e parcelas.</div>
         <div className="form-wrap">
           <div className="fg">
             <div className="fl"><label className="flabel">Nome</label><input className="fi" value={form.nome} onChange={e=>setForm(p=>({...p,nome:e.target.value}))} placeholder="Ex: Nubank fatura"/></div>
@@ -2334,8 +2358,6 @@ export default function App() {
     const TIPOS={assessor:"Assessor — consórcio",trafego:"Tráfego pago",ecossistema:"Ecossistema completo",consorcio:"Consórcio próprio",outro:"Outro"};
     return (
       <>
-        <div className="pg-title">Adicionar receita</div>
-        <div className="pg-sub">Defina o tipo, nome, valor, mês de início e parcelas.</div>
         <div className="form-wrap">
           <div className="fg">
             <div className="fl"><label className="flabel">Tipo de receita</label>
@@ -2474,9 +2496,6 @@ export default function App() {
 
     return (
       <>
-        <div className="pg-title">Comissões 💼</div>
-        <div className="pg-sub">Comissões dos colaboradores atreladas aos produtos vendidos. Cada comissão é lançada automaticamente em <strong>Despesas › Salários</strong> com o nome do colaborador e acompanha os meses do produto.</div>
-
         <div className="cards-row" style={{gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",maxWidth:620}}>
           <div className="card"><div className="stat-lbl">Colaboradores</div><div className="stat-val">{colabs.length}</div></div>
           <div className="card"><div className="stat-lbl">Comissões ativas</div><div className="stat-val">{comissoes.length}</div></div>
@@ -2614,9 +2633,6 @@ export default function App() {
     const emUso = tagsDespesa.filter(t=>!configuradas.includes(t));
     return (
       <>
-        <div className="pg-title">Categorias de análise 🏷️</div>
-        <div className="pg-sub">Categorias usadas para classificar as contas de despesa de qualquer grupo. Elas alimentam o painel "Gastos por categoria" da aba Despesas.</div>
-
         <div className="form-wrap">
           <div className="sec-label" style={{marginTop:0}}>Configuradas ({configuradas.length})</div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:6}}>
@@ -2668,9 +2684,6 @@ export default function App() {
 
     return (
       <>
-        <div className="pg-title">Produtos 🛒</div>
-        <div className="pg-sub">Catálogo de produtos vendidos aos clientes. As vendas são registradas no bloco de cada cliente (menu LTV) e somam no LTV.</div>
-
         <div className="cards-row" style={{gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",maxWidth:560}}>
           <div className="card"><div className="stat-lbl">Produtos no catálogo</div><div className="stat-val">{produtos.length}</div></div>
           <div className="card"><div className="stat-lbl">Vendas registradas</div><div className="stat-val">{nVendas}</div></div>
@@ -3687,11 +3700,8 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
     return (
       <>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
-          <div>
-            <div className="pg-title">Pipeline de Prospecção</div>
-            <div style={{fontSize:13,color:"var(--muted)"}}>
-              {leads.length} lead{leads.length!==1?"s":""} no pipeline
-            </div>
+          <div style={{fontSize:13,color:"var(--muted)"}}>
+            {leads.length} lead{leads.length!==1?"s":""} no pipeline
           </div>
           <button className="btn btn-p btn-sm" onClick={novoLead}>+ Novo Lead</button>
         </div>
@@ -3751,50 +3761,15 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
     <>
       <style>{S}</style>
 
-      {/* TOPBAR */}
-      <div className="topbar">
-        <div className="brand">
-          Fluxo de Caixa
-          <span className={`saving-dot ${saving==="saving"?"saving":saving==="saved"?"saved":saving==="error"?"error":""}`} title={saving==="saving"?"Salvando...":saving==="saved"?"Salvo!":saving==="error"?"Erro ao salvar — veja o console":""}/>
-          {saving==="error"&&<span className="save-err">Erro ao salvar</span>}
-        </div>
-        <div className="hdr-right">
-          <div className="hdr-stats">
-            <div className="hdr-stat">
-              <span className="hdr-lbl">Caixa {ano===2026?"dez/26":"dez/27"}</span>
-              <span className={`hdr-val ${cc(last.caixa)}`}>{fmt(last.caixa)}</span>
-            </div>
-            <div className="hdr-stat">
-              <span className="hdr-lbl">Ponto baixo</span>
-              <span className={`hdr-val ${cc(minR.caixa)}`}>{fmt(minR.caixa)}</span>
-            </div>
-          </div>
-          <div className="yr-sw">
-            <button className={`yr-btn${ano===2026?" on":""}`} onClick={()=>setAno(2026)}>2026</button>
-            <button className={`yr-btn${ano===2027?" on":""}`} onClick={()=>setAno(2027)}>2027</button>
-          </div>
-          <button
-            className="btn btn-p btn-sm"
-            disabled={saving==="saving"}
-            onClick={()=>saveData(D,ano)}
-            style={{minWidth:80}}
-          >
-            {saving==="saving"?"Salvando...":saving==="saved"?"✓ Salvo":saving==="error"?"✗ Erro":"Salvar"}
-          </button>
-          <div className="user-chip">
-            {user.user_metadata?.avatar_url
-              ? <img className="avatar" src={user.user_metadata.avatar_url} alt=""/>
-              : <div className="avatar-fallback">{(user.email||"U")[0].toUpperCase()}</div>}
-            <button className="btn-ghost" onClick={()=>supabase.auth.signOut()} title="Sair">Sair</button>
-          </div>
-        </div>
-      </div>
-
       {/* LAYOUT: MENU LATERAL + CONTEÚDO */}
       <div className="layout">
         <div className={`sidebar${menuOpen?"":" closed"}`}>
+          <div className="sb-brand">
+            <div className="sb-logo">M</div>
+            {menuOpen && <div><div className="sb-brand-name">MORALES</div><div className="sb-brand-sub">Performance</div></div>}
+          </div>
           <button className="sb-toggle" title={menuOpen?"Recolher menu":"Expandir menu"} onClick={()=>setMenuOpen(o=>!o)}>
-            {menuOpen ? "◀ Recolher" : "▶"}
+            {menuOpen ? "‹ Recolher" : "›"}
           </button>
           {tabs.map(t=>(
             <button key={t.id} className={`sb-item${activeTab===t.id?" on":""}`} title={t.label} onClick={()=>setActiveTab(t.id)}>
@@ -3803,7 +3778,52 @@ VI. O não pagamento das parcelas contratadas não desobriga a <strong>CONTRATAN
             </button>
           ))}
         </div>
-        <div className="content">{renderTab()}</div>
+
+        <div className="main">
+          {/* HEADER DA PÁGINA */}
+          <div className="page-hdr">
+            <div>
+              <div className="ph-title">
+                {TAB_META[activeTab]?.t || "Fluxo de Caixa"}
+                <span className={`saving-dot ${saving==="saving"?"saving":saving==="saved"?"saved":saving==="error"?"error":""}`} title={saving==="saving"?"Salvando...":saving==="saved"?"Salvo!":saving==="error"?"Erro ao salvar — veja o console":""}/>
+                {saving==="error"&&<span className="save-err">Erro ao salvar</span>}
+              </div>
+              {TAB_META[activeTab]?.s && <div className="ph-sub">{TAB_META[activeTab].s}</div>}
+            </div>
+            <div className="hdr-right">
+              <div className="hdr-stats">
+                <div className="hdr-stat">
+                  <span className="hdr-lbl">Caixa {ano===2026?"dez/26":"dez/27"}</span>
+                  <span className={`hdr-val ${cc(last.caixa)}`}>{fmt(last.caixa)}</span>
+                </div>
+                <div className="hdr-stat">
+                  <span className="hdr-lbl">Ponto baixo</span>
+                  <span className={`hdr-val ${cc(minR.caixa)}`}>{fmt(minR.caixa)}</span>
+                </div>
+              </div>
+              <div className="yr-sw">
+                <button className={`yr-btn${ano===2026?" on":""}`} onClick={()=>setAno(2026)}>2026</button>
+                <button className={`yr-btn${ano===2027?" on":""}`} onClick={()=>setAno(2027)}>2027</button>
+              </div>
+              <button
+                className="btn btn-p btn-sm"
+                disabled={saving==="saving"}
+                onClick={()=>saveData(D,ano)}
+                style={{minWidth:80}}
+              >
+                {saving==="saving"?"Salvando...":saving==="saved"?"✓ Salvo":saving==="error"?"✗ Erro":"Salvar"}
+              </button>
+              <div className="user-chip">
+                {user.user_metadata?.avatar_url
+                  ? <img className="avatar" src={user.user_metadata.avatar_url} alt=""/>
+                  : <div className="avatar-fallback">{(user.email||"U")[0].toUpperCase()}</div>}
+                <button className="btn-ghost" onClick={()=>supabase.auth.signOut()} title="Sair">Sair</button>
+              </div>
+            </div>
+          </div>
+
+          <div className="content">{renderTab()}</div>
+        </div>
       </div>
 
       {/* DRAWER PAINEL DE CLIENTES */}
