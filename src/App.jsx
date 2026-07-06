@@ -64,12 +64,23 @@ function contaEff(d, ct) {
     const p = cli && Array.isArray(cli.produtosContratados)
       ? cli.produtosContratados.find(q => q.id === ct.comissao.prodId) : null;
     if (p) {
-      // Duração da comissão: "auto" acompanha o produto; número = meses fixos (0 = recorrente)
-      const dur = ct.comissao.duracao;
-      const par = (dur === undefined || dur === "auto") ? (parseInt(p.parcelas)||0) : (parseInt(dur)||0);
+      const pIni = parseInt(p.inicio)||0, pPar = parseInt(p.parcelas)||0;
       // Início: "auto" acompanha o produto; número = mês fixo escolhido pelo usuário
       const iniC = ct.comissao.inicioCustom;
-      const ini = (iniC === undefined || iniC === "auto") ? (parseInt(p.inicio)||0) : (parseInt(iniC)||0);
+      const ini = (iniC === undefined || iniC === "auto") ? pIni : (parseInt(iniC)||0);
+      // Duração: "auto" = vai ATÉ O FIM do contrato do produto (do início escolhido em diante);
+      // número = meses fixos (0 = recorrente)
+      const dur = ct.comissao.duracao;
+      let par;
+      if (dur === undefined || dur === "auto") {
+        if (pPar === 0) par = 0; // produto recorrente → comissão recorrente
+        else {
+          const restantes = (pIni + pPar) - ini; // meses do início da comissão até o fim do produto
+          par = restantes > 0 ? restantes : -1;  // -1 = fora do contrato, nunca ativa
+        }
+      } else {
+        par = parseInt(dur)||0;
+      }
       return { ini, par };
     }
   }
@@ -2591,7 +2602,7 @@ export default function App() {
                                   return d;
                                 });
                               }}>
-                              <option value="auto">= produto</option>
+                              <option value="auto">até o fim do produto</option>
                               {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
                               <option value="0">recorrente</option>
                             </select>
@@ -2964,7 +2975,7 @@ export default function App() {
                               <input className="fi" type="month" value={comForm.inicioYM||""} onChange={e=>setComForm(f=>({...f,inicioYM:e.target.value||f.inicioYM}))}/></div>
                             <div className="fl" style={{width:170}}><label className="flabel">Quanto tempo</label>
                               <select className="fi" value={comForm.duracao??"auto"} onChange={e=>setComForm(f=>({...f,duracao:e.target.value}))}>
-                                <option value="auto">= produto ({par===0?"recorrente":`${par} ${par===1?"mês":"meses"}`})</option>
+                                <option value="auto">Até o fim do produto {fimDate?`(até ${fmtYM(fimDate)})`:"(recorrente)"}</option>
                                 {[1,2,3,4,5,6,9,12].map(n=><option key={n} value={n}>{n} {n===1?"mês":"meses"}</option>)}
                                 <option value="0">Recorrente (sem fim)</option>
                               </select></div>
