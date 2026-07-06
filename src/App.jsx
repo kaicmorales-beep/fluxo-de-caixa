@@ -812,14 +812,14 @@ export default function App() {
     if (!open) {
       return (
         <span className={`badge ${tone==="desp"?"":"b-g"}`} style={{ ...(badgeStyle||{}), cursor:"pointer" }}
-          title={`Clique para alterar o valor${overridden?" (valor específico deste mês)":""}`}
-          onClick={()=>{ setV(value); setOpen(true); }}>
-          {fmt(value)}/mês{overridden?" *":""}
+          title={`✎ Alterar o VALOR (não marca pagamento)${overridden?" — valor específico deste mês":""}`}
+          onClick={(e)=>{ e.stopPropagation(); setV(value); setOpen(true); }}>
+          {fmt(value)}/mês{overridden?" *":""} ✎
         </span>
       );
     }
     return (
-      <span className="val-edit">
+      <span className="val-edit" onClick={e=>e.stopPropagation()}>
         <input className="val-in" type="number" value={v} autoFocus
           onChange={e=>setV(e.target.value)}
           onKeyDown={e=>{ if(e.key==="Escape") setOpen(false); }} />
@@ -1060,8 +1060,11 @@ export default function App() {
               const atual = par===0 ? null : (empMes-ini+1);
               const pago = !!(ct.pagos&&ct.pagos[empMes]);
               const ovr = !!(ct.valorMes && ct.valorMes[empMes]!=null);
+              const togglePago = ()=>update(d=>{const x=d.categorias[empCard].contas[cti];if(!x.pagos)x.pagos={};x.pagos[empMes]=!x.pagos[empMes];return d;});
               return (
-                <div className="cli-row" key={cti}>
+                <div className="cli-row" key={cti} style={{cursor:"pointer"}}
+                  title={`Clique para marcar como ${pago?"NÃO pago":"PAGO"} em ${ms[empMes]}`}
+                  onClick={togglePago}>
                   <div className="cli-row-main">
                     <span className="cli-row-nome">{ct.nome}</span>
                     {ct.comissao && <span className="badge" style={{background:"#f5eefb",color:"#8e44ad",flexShrink:0}} title={`Comissão de ${ct.comissao.colabNome} · cliente ${ct.comissao.cliNome} · produto ${ct.comissao.prodNome}`}>💼 comissão</span>}
@@ -1075,11 +1078,11 @@ export default function App() {
                       onApply={(nv,scope)=>update(d=>{applyValor(d.categorias[empCard].contas[cti],scope,empMes,nv,ms.length);return d;})}/>
                     {continuaProxAno&&<span className="badge" style={{background:"#eef4fb",color:"#1a5fa0",border:"1px solid #b0ccee"}}>continua em 2027</span>}
                     <button className={`pill-tog ${pago?"on":"off"}`} title={`Marcar como ${pago?"não pago":"pago"} em ${ms[empMes]}`}
-                      onClick={()=>update(d=>{const x=d.categorias[empCard].contas[cti];if(!x.pagos)x.pagos={};x.pagos[empMes]=!x.pagos[empMes];return d;})}>
+                      onClick={e=>{e.stopPropagation();togglePago();}}>
                       {pago?"✓ Pago":"Não pago"}
                     </button>
-                    <button className="btn btn-sm" onClick={()=>setEditingConta({ci:empCard,cti})}>Editar</button>
-                    <button className="btn-rm" onClick={()=>{if(confirm("Remover?"))update(d=>{d.categorias[empCard].contas.splice(cti,1);return d;});}}>×</button>
+                    <button className="btn btn-sm" onClick={e=>{e.stopPropagation();setEditingConta({ci:empCard,cti});}}>Editar</button>
+                    <button className="btn-rm" onClick={e=>{e.stopPropagation();if(confirm("Remover?"))update(d=>{d.categorias[empCard].contas.splice(cti,1);return d;});}}>×</button>
                   </div>
                 </div>
               );
@@ -1322,8 +1325,11 @@ export default function App() {
                       const pIni=parseInt(p.inicio)||0, pPar=parseInt(p.parcelas)||0;
                       const pAtual = pPar===0?null:(atvMes-pIni+1);
                       const pRec = !!(p.recebidos&&p.recebidos[atvMes]);
+                      const toggleProdRec = ()=>update(d=>{const x=(d.clientes[i].produtosContratados||[]).find(q=>q.id===p.id);if(x){if(!x.recebidos)x.recebidos={};x.recebidos[atvMes]=!x.recebidos[atvMes];}return d;});
                       return (
-                        <div key={p.id} className="cli-row" style={{padding:"4px 10px"}}>
+                        <div key={p.id} className="cli-row" style={{padding:"4px 10px",cursor:"pointer"}}
+                          title={`Clique para marcar como ${pRec?"NÃO recebido":"RECEBIDO"} em ${ms[atvMes]}`}
+                          onClick={toggleProdRec}>
                           <div className="cli-row-main">
                             <span style={{fontSize:12.5,fontWeight:500}}>{p.nome}</span>
                             <span className="cli-row-sub">{pPar===0?"recorrente":`${pAtual}/${pPar}`}</span>
@@ -1331,14 +1337,16 @@ export default function App() {
                           <div className="cli-row-actions">
                             <span className="badge b-g">{fmt(parseFloat(p.valor)||0)}</span>
                             <button className={`pill-tog ${pRec?"on":"off"}`} title={`Marcar como ${pRec?"não recebido":"recebido"} em ${ms[atvMes]}`}
-                              onClick={()=>update(d=>{const x=(d.clientes[i].produtosContratados||[]).find(q=>q.id===p.id);if(x){if(!x.recebidos)x.recebidos={};x.recebidos[atvMes]=!x.recebidos[atvMes];}return d;})}>
+                              onClick={e=>{e.stopPropagation();toggleProdRec();}}>
                               {pRec?"✓ Recebido":"Não recebido"}
                             </button>
                           </div>
                         </div>
                       );
                     }) : cliAtivoMes(c,atvMes) && (
-                      <div className="cli-row" style={{padding:"4px 10px"}}>
+                      <div className="cli-row" style={{padding:"4px 10px",cursor:c.status==="ativo"?"pointer":"default"}}
+                        title={c.status==="ativo"?`Clique para marcar como ${rec?"NÃO recebido":"RECEBIDO"} em ${ms[atvMes]}`:""}
+                        onClick={()=>{if(c.status!=="ativo")return;update(d=>{const x=d.clientes[i];if(!x.recebidos)x.recebidos={};x.recebidos[atvMes]=!x.recebidos[atvMes];return d;});}}>
                         <div className="cli-row-main">
                           <span style={{fontSize:12.5,fontWeight:500}}>Mensalidade</span>
                           <span className="cli-row-sub">{par===0?"Fixa":`${atual}/${par}`}</span>
@@ -1348,7 +1356,7 @@ export default function App() {
                             onApply={(nv,scope)=>update(d=>{applyValor(d.clientes[i],scope,atvMes,nv,ms.length);return d;})}/>
                           {c.status==="ativo" && (
                             <button className={`pill-tog ${rec?"on":"off"}`} title={`Marcar como ${rec?"não recebido":"recebido"} em ${ms[atvMes]}`}
-                              onClick={()=>update(d=>{const x=d.clientes[i];if(!x.recebidos)x.recebidos={};x.recebidos[atvMes]=!x.recebidos[atvMes];return d;})}>
+                              onClick={e=>{e.stopPropagation();update(d=>{const x=d.clientes[i];if(!x.recebidos)x.recebidos={};x.recebidos[atvMes]=!x.recebidos[atvMes];return d;});}}>
                               {rec?"✓ Recebido":"Não recebido"}
                             </button>
                           )}
@@ -1358,7 +1366,9 @@ export default function App() {
 
                     {/* Avulsas do mês deste cliente */}
                     {avsCli.map(a=>(
-                      <div key={"av"+a.venda.id} className="cli-row" style={{padding:"4px 10px",borderStyle:"dashed"}}>
+                      <div key={"av"+a.venda.id} className="cli-row" style={{padding:"4px 10px",borderStyle:"dashed",cursor:"pointer"}}
+                        title={`Clique para marcar como ${a.recebido?"NÃO recebido":"RECEBIDO"}`}
+                        onClick={()=>toggleAvulsaRecebida(a)}>
                         <div className="cli-row-main">
                           <span style={{fontSize:12.5,fontWeight:500}}>🛒 {a.venda.nome}</span>
                           <span className="cli-row-sub">venda avulsa · {fmtData(a.venda.data)}</span>
@@ -1366,7 +1376,7 @@ export default function App() {
                         <div className="cli-row-actions">
                           <span className="badge b-g">{fmt(a.valor)}</span>
                           <button className={`pill-tog ${a.recebido?"on":"off"}`} title={`Marcar como ${a.recebido?"não recebido":"recebido"}`}
-                            onClick={()=>toggleAvulsaRecebida(a)}>
+                            onClick={e=>{e.stopPropagation();toggleAvulsaRecebida(a);}}>
                             {a.recebido?"✓ Recebido":"Não recebido"}
                           </button>
                         </div>
@@ -1643,34 +1653,39 @@ export default function App() {
             {recItens.length===0 ? <div className="pn-empty" style={{padding:"14px 0"}}>Nenhuma receita ativa em {ms[mi]}.</div>
              : recView.length===0 ? <div className="pn-empty" style={{padding:"14px 0"}}>Nenhuma receita nesse grupo.</div> : (
               <div className="cli-list compact">
-                {recView.map(r=>(
-                  <div className="cli-row" key={"r"+r.i}>
-                    <div className="cli-row-main">
-                      <span className="cli-row-nome">{r.nome}</span>
+                {recView.map(r=>{
+                  const toggleRec = ()=>update(d=>{
+                    const x=d.clientes[r.i];
+                    if(Array.isArray(x.produtosContratados)&&x.produtosContratados.length){
+                      const alvo=!r.recebido;
+                      x.produtosContratados.forEach(p=>{if(prodAtivoMes(p,mi)){if(!p.recebidos)p.recebidos={};p.recebidos[mi]=alvo;}});
+                    } else {
+                      if(!x.recebidos)x.recebidos={};x.recebidos[mi]=!x.recebidos[mi];
+                    }
+                    return d;
+                  });
+                  return (
+                    <div className="cli-row" key={"r"+r.i} style={{cursor:"pointer"}}
+                      title={`Clique para marcar como ${r.recebido?"NÃO recebido":"RECEBIDO"} em ${ms[mi]}`}
+                      onClick={toggleRec}>
+                      <div className="cli-row-main">
+                        <span className="cli-row-nome">{r.nome}</span>
+                      </div>
+                      {r.temProdutos ? (
+                        <span className="badge b-g" style={{cursor:"pointer"}} title="Valor definido pelos produtos — clique para gerenciar"
+                          onClick={e=>{e.stopPropagation();setProdCliId(r.id);}}>{fmt(r.val)}/mês 🛒</span>
+                      ) : (
+                        <ValorCell value={r.val} mes={ms[mi]} tone="rec" overridden={r.ovr}
+                          onApply={(nv,scope)=>update(d=>{applyValor(d.clientes[r.i],scope,mi,nv,ms.length);return d;})}/>
+                      )}
+                      <button className={`pill-tog ${r.recebido?"on":"off"}`}
+                        title={r.temProdutos?"Marca/desmarca todos os produtos do mês (detalhe no 🛒 do cliente)":""}
+                        onClick={e=>{e.stopPropagation();toggleRec();}}>
+                        {r.recebido?"✓ Recebido":r.valReal>0?`Parcial · ${fmt(r.valReal)}`:"Não recebido"}
+                      </button>
                     </div>
-                    {r.temProdutos ? (
-                      <span className="badge b-g" style={{cursor:"pointer"}} title="Valor definido pelos produtos — clique para gerenciar"
-                        onClick={()=>setProdCliId(r.id)}>{fmt(r.val)}/mês 🛒</span>
-                    ) : (
-                      <ValorCell value={r.val} mes={ms[mi]} tone="rec" overridden={r.ovr}
-                        onApply={(nv,scope)=>update(d=>{applyValor(d.clientes[r.i],scope,mi,nv,ms.length);return d;})}/>
-                    )}
-                    <button className={`pill-tog ${r.recebido?"on":"off"}`}
-                      title={r.temProdutos?"Marca/desmarca todos os produtos do mês (detalhe no 🛒 do cliente)":""}
-                      onClick={()=>update(d=>{
-                        const x=d.clientes[r.i];
-                        if(Array.isArray(x.produtosContratados)&&x.produtosContratados.length){
-                          const alvo=!r.recebido;
-                          x.produtosContratados.forEach(p=>{if(prodAtivoMes(p,mi)){if(!p.recebidos)p.recebidos={};p.recebidos[mi]=alvo;}});
-                        } else {
-                          if(!x.recebidos)x.recebidos={};x.recebidos[mi]=!x.recebidos[mi];
-                        }
-                        return d;
-                      })}>
-                      {r.recebido?"✓ Recebido":r.valReal>0?`Parcial · ${fmt(r.valReal)}`:"Não recebido"}
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -1682,13 +1697,15 @@ export default function App() {
                 </div>
                 <div className="cli-list compact">
                   {avMesItens.map(a=>(
-                    <div className="cli-row" key={"av"+a.venda.id}>
+                    <div className="cli-row" key={"av"+a.venda.id} style={{cursor:"pointer"}}
+                      title={`Clique para marcar como ${a.recebido?"NÃO recebido":"RECEBIDO"}`}
+                      onClick={()=>toggleAvulsaRecebida(a)}>
                       <div className="cli-row-main">
                         <span className="cli-row-nome">{a.cliNome}</span>
                         <span className="cli-row-sub">🛒 {a.venda.nome}</span>
                       </div>
-                      <span className="badge b-g" style={{cursor:"pointer"}} title="Abrir produtos do cliente" onClick={()=>setProdCliId(a.cliId)}>{fmt(a.valor)}</span>
-                      <button className={`pill-tog ${a.recebido?"on":"off"}`} onClick={()=>toggleAvulsaRecebida(a)}>
+                      <span className="badge b-g" style={{cursor:"pointer"}} title="Abrir produtos do cliente" onClick={e=>{e.stopPropagation();setProdCliId(a.cliId);}}>{fmt(a.valor)}</span>
+                      <button className={`pill-tog ${a.recebido?"on":"off"}`} onClick={e=>{e.stopPropagation();toggleAvulsaRecebida(a);}}>
                         {a.recebido?"✓ Recebido":"Não recebido"}
                       </button>
                     </div>
@@ -1709,20 +1726,25 @@ export default function App() {
             {despItens.length===0 ? <div className="pn-empty" style={{padding:"14px 0"}}>Nenhuma despesa ativa em {ms[mi]}.</div>
              : despView.length===0 ? <div className="pn-empty" style={{padding:"14px 0"}}>Nenhuma despesa nessa categoria.</div> : (
               <div className="cli-list compact">
-                {despView.map(d=>(
-                  <div className="cli-row" key={"d"+d.ci+"-"+d.cti}>
-                    <div className="cli-row-main">
-                      <span className="cli-row-nome">{d.nome}</span>
-                      <span className="cli-row-sub" style={{color:d.cor}}>{d.cat}</span>
+                {despView.map(d=>{
+                  const togglePago = ()=>update(dd=>{const x=dd.categorias[d.ci].contas[d.cti];if(!x.pagos)x.pagos={};x.pagos[mi]=!x.pagos[mi];return dd;});
+                  return (
+                    <div className="cli-row" key={"d"+d.ci+"-"+d.cti} style={{cursor:"pointer"}}
+                      title={`Clique para marcar como ${d.pago?"NÃO pago":"PAGO"} em ${ms[mi]}`}
+                      onClick={togglePago}>
+                      <div className="cli-row-main">
+                        <span className="cli-row-nome">{d.nome}</span>
+                        <span className="cli-row-sub" style={{color:d.cor}}>{d.cat}</span>
+                      </div>
+                      <ValorCell value={d.val} mes={ms[mi]} tone="desp" overridden={d.ovr}
+                        onApply={(nv,scope)=>update(dd=>{applyValor(dd.categorias[d.ci].contas[d.cti],scope,mi,nv,ms.length);return dd;})}/>
+                      <button className={`pill-tog ${d.pago?"on":"off"}`}
+                        onClick={e=>{e.stopPropagation();togglePago();}}>
+                        {d.pago?"✓ Pago":"Não pago"}
+                      </button>
                     </div>
-                    <ValorCell value={d.val} mes={ms[mi]} tone="desp" overridden={d.ovr}
-                      onApply={(nv,scope)=>update(dd=>{applyValor(dd.categorias[d.ci].contas[d.cti],scope,mi,nv,ms.length);return dd;})}/>
-                    <button className={`pill-tog ${d.pago?"on":"off"}`}
-                      onClick={()=>update(dd=>{const x=dd.categorias[d.ci].contas[d.cti];if(!x.pagos)x.pagos={};x.pagos[mi]=!x.pagos[mi];return dd;})}>
-                      {d.pago?"✓ Pago":"Não pago"}
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
